@@ -4,6 +4,8 @@ local shell = require("jujutsu.jj.shell")
 local M = {}
 
 local CACHE_TTL_MS = 2000
+-- A full-repo diff can block on snapshot or gpg. Keep it off the statusline.
+local FETCH_TIMEOUT_MS = 120000
 
 ---@class JujutsuLualineCache
 ---@field root string|nil
@@ -17,6 +19,10 @@ local CACHE_TTL_MS = 2000
 ---@type JujutsuLualineCache|nil
 local cache = nil
 local autocmd_group = nil
+local fetching = false
+local fetch_scheduled = false
+---@type string|nil
+local queued_root = nil
 
 local REV_ICON = ""
 local AHEAD_ICON = "⇑"
@@ -41,13 +47,15 @@ local function workspace_root()
   return require("jujutsu.jj.cli").find_workspace_root(dir)
 end
 
+---Await `jj` from the fetch coroutine. Never call this from the statusline.
 ---@param cmd string[]
 ---@param root string
 ---@return ProcessResult
-local function jj_run(cmd, root)
-  return Process.run({
+local function jj_await(cmd, root)
+  return Process.await({
     cmd = cmd,
     cwd = root,
+    timeout = FETCH_TIMEOUT_MS,
     suppress_console = true,
     on_error = function() return false end,
   })
@@ -60,7 +68,7 @@ local function fetch_ahead(root, bookmark)
   if bookmark == "" then return 0 end
   local jj = shell.resolve_jj()
   -- Same approach as oh-my-posh: one `.` per commit in bookmark..@
-  local res = jj_run({
+  local res = jj_await({
     jj,
     "--no-pager",
     "--color=never",
@@ -85,7 +93,7 @@ end
 local function fetch_meta(root)
   local jj = shell.resolve_jj()
 
-  local change_res = jj_run({
+  local change_res = jj_await({
     jj,
     "--no-pager",
     "--color=never",
@@ -102,7 +110,7 @@ local function fetch_meta(root)
   local change_id = vim.trim(table.concat(change_res.stdout or {}, ""))
 
   -- Same revset oh-my-posh uses for ClosestBookmarks.
-  local bm_res = jj_run({
+  local bm_res = jj_await({
     jj,
     "--no-pager",
     "--color=never",
@@ -178,7 +186,7 @@ end
 ---@return integer, integer, integer
 local function fetch_counts(root)
   local jj = shell.resolve_jj()
-  local res = jj_run({
+  local res = jj_await({
     jj,
     "--no-pager",
     "--color=never",
@@ -206,6 +214,71 @@ local function fetch(root)
   }
 end
 
+local function empty_cache(root)
+  return {
+    root = root,
+    fetched_at = vim.uv.now(),
+    change_id = "",
+    bookmarks = {},
+    added = 0,
+    changed = 0,
+    deleted = 0,
+  }
+end
+
+---@param root string
+local enqueue
+
+---@param root string
+local function run_fetch(root)
+  fetching = true
+  local co = coroutine.create(function() return fetch(root) end)
+
+  local function finish(data)
+    fetching = false
+    if data then cache = data end
+    local again = queued_root
+    queued_root = nil
+    -- Same root was requested again while this fetch was in flight. The result
+    -- above is already current; a same-root restart loops while `jj` is slower than the TTL.
+    if again and again ~= root then enqueue(again) end
+    vim.schedule(function() pcall(vim.cmd, "redrawstatus") end)
+  end
+
+  local function step(...)
+    local ok, data = coroutine.resume(co, ...)
+    if not ok then
+      finish(empty_cache(root))
+      return
+    end
+    if coroutine.status(co) ~= "dead" and type(data) == "function" then
+      data(vim.schedule_wrap(step))
+      return
+    end
+    finish(data)
+  end
+
+  step()
+end
+
+---Start a fetch after the statusline returns. Statusline redraw runs during
+---`vim.wait`, so a synchronous `jj` here re-enters the statusline and spawns
+---another `jj` before the first one finishes.
+---@param root string
+function enqueue(root)
+  queued_root = root
+  if fetch_scheduled or fetching then return end
+  fetch_scheduled = true
+  vim.schedule(function()
+    fetch_scheduled = false
+    if fetching then return end
+    local target = queued_root
+    queued_root = nil
+    if not target then return end
+    run_fetch(target)
+  end)
+end
+
 ---@return JujutsuLualineCache|nil
 local function get_cache()
   ensure_autocmds()
@@ -214,14 +287,13 @@ local function get_cache()
     cache = nil
     return nil
   end
-  if cache and cache.root == root and (vim.uv.now() - cache.fetched_at) < CACHE_TTL_MS then return cache end
-  local ok, data = pcall(fetch, root)
-  if not ok or not data then
-    cache = nil
-    return nil
-  end
-  cache = data
-  return cache
+  local fresh = cache and cache.root == root and (vim.uv.now() - cache.fetched_at) < CACHE_TTL_MS
+  if fresh then return cache end
+  -- A fetch for this root is already running. Queueing another would restart
+  -- it as soon as it finished, which never stops while `jj` is slower than the TTL.
+  if not fetching or not cache or cache.root ~= root then enqueue(root) end
+  if cache and cache.root == root then return cache end
+  return nil
 end
 
 ---@param name string

@@ -16,6 +16,7 @@ local util = require("jujutsu.util")
 ---@field env? table<string, string>
 ---@field input? string
 ---@field suppress_console? boolean
+---@field timeout? integer milliseconds; the process is killed on expiry
 ---@field on_error? fun(res: ProcessResult): boolean
 
 local M = {}
@@ -79,6 +80,7 @@ function M.run(opts, cb)
   end
 
   local sync_done, sync_result = false, nil
+  local finished = false
 
   local function deliver(res)
     if cb then
@@ -90,6 +92,8 @@ function M.run(opts, cb)
   end
 
   local function finish(code)
+    if finished then return end
+    finished = true
     if stdout_buf ~= "" then table.insert(stdout, stdout_buf) end
     if stderr_buf ~= "" then table.insert(stderr, stderr_buf) end
     ---@type ProcessResult
@@ -132,11 +136,24 @@ function M.run(opts, cb)
     stderr = function(_, data) stderr_buf = append(stderr, stderr_buf, data) end,
   }
   if env then sys_opts.env = env end
+  -- Default covers user-facing commands. Background callers pass a shorter timeout
+  -- so a stuck `jj` (snapshot, gpg, lock) cannot pin a refresh forever.
+  local timeout_ms = opts.timeout or (1000 * 60 * 10)
+  if opts.timeout then sys_opts.timeout = opts.timeout end
 
   local function launch()
     vim.system(cmd, sys_opts, function(obj)
       vim.schedule(function() finish(obj.code) end)
     end)
+  end
+
+  -- Hidden sync calls must not pump autocmds, timers, or the statusline. Those
+  -- callbacks start more `jj` jobs; nested `vim.wait` then freezes the UI while
+  -- the processes pile up. `SystemObj:wait` only runs fast events.
+  if not show_spinner and not cb then
+    local completed = vim.system(cmd, sys_opts):wait(timeout_ms)
+    finish(completed and completed.code or -1)
+    return sync_result
   end
 
   if show_spinner then
@@ -148,7 +165,7 @@ function M.run(opts, cb)
 
   if cb then return nil end
 
-  vim.wait(1000 * 60 * 10, function() return sync_done end, 20)
+  vim.wait(timeout_ms, function() return sync_done end, 20)
   return sync_result
 end
 

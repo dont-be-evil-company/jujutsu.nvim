@@ -232,6 +232,13 @@ mt_builder.__index = function(tbl, action)
     return function(opts) return M._call(tbl, opts) end
   elseif action == "call_async" then
     return function(opts) return M._call_async(tbl, opts) end
+  elseif action == "ignore_working_copy" then
+    ---Skip the working-copy snapshot. Use this for refreshes triggered by `.jj`
+    ---itself so a snapshot write cannot schedule another snapshot.
+    return function()
+      state.ignore_working_copy = true
+      return tbl
+    end
   end
 
   if config.flags and config.flags[action] then
@@ -287,7 +294,7 @@ function M._build_cmd(tbl, opts)
     table.insert(cmd, c.name .. "=" .. c.value)
   end
 
-  if readonly_commands[command] then table.insert(cmd, "--ignore-working-copy") end
+  if state.ignore_working_copy or readonly_commands[command] then table.insert(cmd, "--ignore-working-copy") end
 
   for word in command:gmatch("%S+") do
     table.insert(cmd, word)
@@ -321,6 +328,7 @@ function M._call(tbl, opts)
     cwd = resolve_cwd(opts),
     env = state.env,
     input = state.input,
+    timeout = opts.timeout,
     suppress_console = opts.hidden ~= false and (opts.suppress_console ~= false),
     on_error = opts.on_error,
   })
@@ -345,6 +353,7 @@ function M._call_async(tbl, opts)
     cwd = resolve_cwd(opts),
     env = state.env,
     input = state.input,
+    timeout = opts.timeout,
     suppress_console = opts.hidden ~= false and (opts.suppress_console ~= false),
     on_error = opts.on_error,
   })
