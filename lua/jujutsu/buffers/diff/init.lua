@@ -67,19 +67,23 @@ local function refresh_overlays(view)
   overlay.render(view.split.right_buf.bufnr, comments, view.selected_path, "RIGHT")
 end
 
+local function focus_blocked()
+  if require("jujutsu.finder").is_active() then return true end
+  local cur = vim.api.nvim_get_current_win()
+  if not vim.api.nvim_win_is_valid(cur) then return false end
+  local buf = vim.api.nvim_win_get_buf(cur)
+  if vim.api.nvim_buf_is_valid(buf) then
+    local ft = vim.bo[buf].filetype
+    if ft == "jujutsu-finder" or ft == "jujutsu-input" or ft == "jujutsu-review-comment" then return true end
+  end
+  local cfg = vim.api.nvim_win_get_config(cur)
+  return cfg.relative and cfg.relative ~= "" and (cfg.zindex or 0) >= 200
+end
+
 local function focus_view(view)
   if not view or view.closing then return end
-  -- Don't yank focus away from an active floating/terminal picker.
-  local cur = vim.api.nvim_get_current_win()
-  if vim.api.nvim_win_is_valid(cur) then
-    local cfg = vim.api.nvim_win_get_config(cur)
-    if cfg.relative and cfg.relative ~= "" then return end
-    local buf = vim.api.nvim_win_get_buf(cur)
-    if vim.api.nvim_buf_is_valid(buf) then
-      local ft = vim.bo[buf].filetype
-      if ft == "jujutsu-finder" then return end
-    end
-  end
+  -- Don't yank focus away from an active picker or compose float.
+  if focus_blocked() then return end
   if view.tabpage and vim.api.nvim_tabpage_is_valid(view.tabpage) then
     pcall(vim.api.nvim_set_current_tabpage, view.tabpage)
   end
@@ -95,13 +99,20 @@ local function close_view()
     if not instance or instance.closing then return end
     instance.closing = true
     local tab = instance.tabpage
+    local floating = instance.floating
+    local wins = instance.wins
     if instance.review then pcall(require("jujutsu.review.session").save, instance.review) end
+    if floating and wins then
+      for _, w in ipairs(wins) do
+        if w and vim.api.nvim_win_is_valid(w) then pcall(vim.api.nvim_win_close, w, true) end
+      end
+    end
     split_mod.destroy(instance.split)
     if instance.panel_buf and vim.api.nvim_buf_is_valid(instance.panel_buf.bufnr) then
       pcall(vim.api.nvim_buf_delete, instance.panel_buf.bufnr, { force = true })
     end
     instance = nil
-    if tab and vim.api.nvim_tabpage_is_valid(tab) then
+    if not floating and tab and vim.api.nvim_tabpage_is_valid(tab) then
       local cur = vim.api.nvim_get_current_tabpage()
       if cur ~= tab then vim.api.nvim_set_current_tabpage(tab) end
       pcall(vim.cmd, "tabclose")
@@ -363,16 +374,11 @@ local function open_description(view)
   local buf = Buffer.create("jujutsu://diff/desc/" .. rev, "jujutsu-diff-desc")
   local width = math.min(80, math.floor(vim.o.columns * 0.7))
   local height = math.min(math.max(#lines + 2, 6), math.floor(vim.o.lines * 0.5))
-  local win = vim.api.nvim_open_win(buf.bufnr, true, {
-    relative = "editor",
+  local win = require("jujutsu.ui.host").open_float(buf.bufnr, {
     width = width,
     height = height,
-    row = math.floor((vim.o.lines - height) / 2),
-    col = math.floor((vim.o.columns - width) / 2),
-    style = "minimal",
-    border = "rounded",
     title = " " .. rev .. " ",
-    title_pos = "center",
+    zindex = 90,
   })
   Buffer.render(buf, lines, {
     { line = 0, col = 0, end_col = #(lines[1] or ""), hl = "JujutsuDescription" },
@@ -972,14 +978,29 @@ function M.open(opts)
     right_rev = opts.review.right_rev or right_rev
   end
 
-  vim.cmd("tabnew")
-  local tabpage = vim.api.nvim_get_current_tabpage()
-  local left_win = vim.api.nvim_get_current_win()
-  vim.cmd("vsplit")
-  local right_win = vim.api.nvim_get_current_win()
-  vim.cmd("botright split")
-  local panel_win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_height(panel_win, panel_height())
+  local host = require("jujutsu.ui.host")
+  local regions = host.diff_regions(panel_height())
+  local tabpage, left_win, right_win, panel_win
+  if regions then
+    local laid = host.tiles({
+      { key = "left", region = regions.left },
+      { key = "right", region = regions.right },
+      { key = "panel", region = regions.panel, enter = true },
+    })
+    left_win = laid.left
+    right_win = laid.right
+    panel_win = laid.panel
+    tabpage = nil
+  else
+    vim.cmd("tabnew")
+    tabpage = vim.api.nvim_get_current_tabpage()
+    left_win = vim.api.nvim_get_current_win()
+    vim.cmd("vsplit")
+    right_win = vim.api.nvim_get_current_win()
+    vim.cmd("botright split")
+    panel_win = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_height(panel_win, panel_height())
+  end
 
   local panel_buf = Buffer.create("jujutsu://diff/panel/" .. title, "jujutsu-diff")
   vim.api.nvim_win_set_buf(panel_win, panel_buf.bufnr)
@@ -993,6 +1014,7 @@ function M.open(opts)
 
   local split = split_mod.create(root, left_win, right_win, {
     uri_prefix = "jujutsu://diff/" .. require("jujutsu.util").buf_name_path(title),
+    host_top = regions and regions.top or nil,
   })
 
   instance = {
@@ -1011,6 +1033,8 @@ function M.open(opts)
     line_map = {},
     closing = false,
     review = opts.review,
+    floating = regions ~= nil,
+    wins = { left_win, right_win, panel_win },
   }
 
   bind_keymaps(instance)
@@ -1033,7 +1057,7 @@ function M.open(opts)
   vim.api.nvim_create_autocmd("TabClosed", {
     group = vim.api.nvim_create_augroup("JujutsuDiffView", { clear = true }),
     callback = function()
-      if not instance or instance.closing then return end
+      if not instance or instance.closing or not instance.tabpage then return end
       if not vim.api.nvim_tabpage_is_valid(instance.tabpage) then
         instance.closing = true
         split_mod.destroy(instance.split)

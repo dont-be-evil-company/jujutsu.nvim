@@ -38,49 +38,195 @@ local function run_headline(run)
   return title
 end
 
+---@param text string
+---@param width integer
+---@return string[]
+function M.wrap_text(text, width)
+  text = text or ""
+  width = math.max(1, math.floor(width or 1))
+  if text == "" then return { "" } end
+  local out = {}
+  local cur = ""
+  local function push_word(word)
+    if #word > width then
+      if cur ~= "" then
+        out[#out + 1] = cur
+        cur = ""
+      end
+      local rest = word
+      while #rest > width do
+        out[#out + 1] = rest:sub(1, width)
+        rest = rest:sub(width + 1)
+      end
+      cur = rest
+      return
+    end
+    if cur == "" then
+      cur = word
+    elseif #cur + 1 + #word <= width then
+      cur = cur .. " " .. word
+    else
+      out[#out + 1] = cur
+      cur = word
+    end
+  end
+  for word in text:gmatch("%S+") do
+    push_word(word)
+  end
+  if cur ~= "" then out[#out + 1] = cur end
+  if #out == 0 then out[1] = "" end
+  return out
+end
+
+local COLUMN_ORDER = { "status", "title", "workflow", "branch", "event", "elapsed", "age" }
+local COLUMN_LABEL = {
+  status = "STATUS",
+  title = "TITLE",
+  workflow = "WORKFLOW",
+  branch = "BRANCH",
+  event = "EVENT",
+  elapsed = "ELAPSED",
+  age = "AGE",
+}
+
+---Choose a table or wrapped card for the CI list.
+---@param width integer
+---@return { mode: "table"|"card", width: integer, cols?: table<string, integer>, rule?: integer }
+function M.plan_columns(width)
+  width = math.max(1, math.floor(width or 100))
+  if width < 72 then return { mode = "card", width = width } end
+  local cols = {
+    status = 6,
+    title = 42,
+    workflow = 14,
+    branch = 12,
+    event = 8,
+    elapsed = 8,
+    age = 10,
+  }
+  local function total()
+    local n, count = 0, 0
+    for _, key in ipairs(COLUMN_ORDER) do
+      if cols[key] > 0 then
+        n = n + cols[key]
+        count = count + 1
+      end
+    end
+    return n + math.max(0, count - 1) * 2
+  end
+  for _, key in ipairs({ "elapsed", "event", "branch", "workflow" }) do
+    if total() <= width then break end
+    cols[key] = 0
+  end
+  while total() > width and cols.title > 12 do
+    cols.title = cols.title - math.min(cols.title - 12, total() - width)
+  end
+  while total() > width and cols.age > 4 do
+    cols.age = cols.age - math.min(cols.age - 4, total() - width)
+  end
+  if total() > width then return { mode = "card", width = width } end
+  local spare = width - total()
+  if spare > 0 then cols.title = cols.title + spare end
+  return { mode = "table", width = width, cols = cols, rule = width }
+end
+
+local function visible_columns(cols)
+  local keys = {}
+  for _, key in ipairs(COLUMN_ORDER) do
+    if cols[key] > 0 then keys[#keys + 1] = key end
+  end
+  return keys
+end
+
+local function fit_cell(text, width)
+  if width <= 0 then return nil end
+  text = tostring(text or "")
+  return model.pad(model.truncate(text, width), width)
+end
+
 ---@param runs ForgeCiRun[]
 ---@param remote ForgeRemote
----@param opts? { has_more?: boolean, list_limit?: integer }
+---@param opts? { has_more?: boolean, list_limit?: integer, width?: integer }
 ---@return string[], table[], { item_ranges: table[] }
 function M.build_list(runs, remote, opts)
   opts = opts or {}
   local lines, highlights = {}, {}
   local item_ranges = {}
+  local width = opts.width or 100
+  local plan = M.plan_columns(width)
   push(lines, highlights, string.format("CI runs · %s/%s", remote.owner, remote.repo), "JujutsuPopupHeading")
   push(lines, highlights, "", nil)
-  local header = string.format(
-    "%s  %-42s  %-14s  %-12s  %-8s  %-8s  %s",
-    model.pad("STATUS", 6),
-    "TITLE",
-    "WORKFLOW",
-    "BRANCH",
-    "EVENT",
-    "ELAPSED",
-    "AGE"
-  )
-  push(lines, highlights, header, "JujutsuSectionHeader")
-  push(lines, highlights, string.rep("─", 100), "JujutsuSubtle")
 
-  for _, run in ipairs(runs or {}) do
-    local eff = model.effective_status(run.status, run.conclusion)
-    local icon, icon_hl = model.status_icon(eff)
-    local elapsed = model.elapsed_text(run.elapsed, run.started_at, run.updated_at)
-    local age = model.format_age(run.created_at or run.started_at)
-    local line = string.format(
-      "%s  %-42s  %-14s  %-12s  %-8s  %-8s  %s",
-      model.pad(icon, 6),
-      model.truncate(run.title or run.name or "?", 42),
-      model.truncate(run.workflow or "?", 14),
-      model.truncate(run.branch or "?", 12),
-      model.truncate(run.event or "?", 8),
-      model.truncate(elapsed, 8),
-      age
-    )
-    local start_line = #lines
-    table.insert(lines, line)
-    local row = #lines - 1
-    table.insert(highlights, { line = row, col = 0, end_col = 6, hl = icon_hl })
-    table.insert(item_ranges, { start_line = start_line, end_line = row, kind = "run", run = run })
+  if plan.mode == "table" then
+    local cols = plan.cols
+    local keys = visible_columns(cols)
+    local header_cells = {}
+    for _, key in ipairs(keys) do
+      header_cells[#header_cells + 1] = fit_cell(COLUMN_LABEL[key], cols[key])
+    end
+    push(lines, highlights, table.concat(header_cells, "  "), "JujutsuSectionHeader")
+    push(lines, highlights, string.rep("─", math.max(1, math.min(width, plan.rule or width))), "JujutsuSubtle")
+
+    for _, run in ipairs(runs or {}) do
+      local eff = model.effective_status(run.status, run.conclusion)
+      local icon, icon_hl = model.status_icon(eff)
+      local elapsed = model.elapsed_text(run.elapsed, run.started_at, run.updated_at)
+      local age = model.format_age(run.created_at or run.started_at)
+      local values = {
+        status = icon,
+        title = run.title or run.name or "?",
+        workflow = run.workflow or "?",
+        branch = run.branch or "?",
+        event = run.event or "?",
+        elapsed = elapsed,
+        age = age,
+      }
+      local cells = {}
+      for _, key in ipairs(keys) do
+        cells[#cells + 1] = fit_cell(values[key], cols[key])
+      end
+      local start_line = #lines
+      table.insert(lines, table.concat(cells, "  "))
+      local row = #lines - 1
+      table.insert(highlights, { line = row, col = 0, end_col = cols.status, hl = icon_hl })
+      table.insert(item_ranges, { start_line = start_line, end_line = row, kind = "run", run = run })
+    end
+  else
+    push(lines, highlights, string.rep("─", math.max(1, width)), "JujutsuSubtle")
+    for _, run in ipairs(runs or {}) do
+      local eff = model.effective_status(run.status, run.conclusion)
+      local icon, icon_hl = model.status_icon(eff)
+      local elapsed = model.elapsed_text(run.elapsed, run.started_at, run.updated_at)
+      local age = model.format_age(run.created_at or run.started_at)
+      local meta_parts = {}
+      local function add_meta(value)
+        value = value ~= nil and tostring(value) or ""
+        if value ~= "" and value ~= "?" then meta_parts[#meta_parts + 1] = value end
+      end
+      add_meta(run.workflow)
+      add_meta(run.branch)
+      add_meta(run.event)
+      add_meta(elapsed)
+      add_meta(age)
+      local gap = "  "
+      local indent = string.rep(" ", #icon + #gap)
+      local title_width = math.max(8, width - #indent)
+      local title_lines = M.wrap_text(tostring(run.title or run.name or "?"), title_width)
+      local meta_lines = M.wrap_text(table.concat(meta_parts, " · "), title_width)
+      local start_line = #lines
+      for i, title_line in ipairs(title_lines) do
+        if i == 1 then
+          table.insert(lines, icon .. gap .. title_line)
+          table.insert(highlights, { line = #lines - 1, col = 0, end_col = #icon, hl = icon_hl })
+        else
+          table.insert(lines, indent .. title_line)
+        end
+      end
+      for _, meta_line in ipairs(meta_lines) do
+        if meta_line ~= "" then table.insert(lines, indent .. meta_line) end
+      end
+      table.insert(item_ranges, { start_line = start_line, end_line = #lines - 1, kind = "run", run = run })
+    end
   end
 
   if #(runs or {}) == 0 then push(lines, highlights, "(no CI runs)", "JujutsuSubtle") end

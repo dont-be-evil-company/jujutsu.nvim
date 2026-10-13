@@ -90,17 +90,10 @@ function M.prompt_comment(title, opts, on_done)
   -- Prefer a taller float when editing existing (long) bodies.
   local width = math.min(100, math.floor(vim.o.columns * 0.8))
   local height = math.min(math.max(16, #body_lines + 4), math.floor(vim.o.lines * 0.7))
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative = "editor",
+  local win = require("jujutsu.ui.host").open_float(buf, {
     width = width,
     height = height,
-    row = math.floor((vim.o.lines - height) / 2),
-    col = math.floor((vim.o.columns - width) / 2),
-    style = "minimal",
-    border = "rounded",
     title = " " .. title .. " ",
-    title_pos = "center",
-    -- Above issue panel / status; match finder/input so teardown races don't cover us.
     zindex = 200,
   })
   vim.api.nvim_win_set_cursor(win, { 1, 0 })
@@ -212,16 +205,11 @@ function M.help(text)
   vim.bo[buf].modifiable = false
   local width = math.min(60, math.floor(vim.o.columns * 0.6))
   local height = math.min(#lines + 2, math.floor(vim.o.lines * 0.5))
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative = "editor",
+  local win = require("jujutsu.ui.host").open_float(buf, {
     width = width,
     height = height,
-    row = math.floor((vim.o.lines - height) / 2),
-    col = math.floor((vim.o.columns - width) / 2),
-    style = "minimal",
-    border = "rounded",
     title = " Review help ",
-    title_pos = "center",
+    zindex = 90,
   })
   local close = function()
     if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end

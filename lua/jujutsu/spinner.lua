@@ -57,24 +57,18 @@ local function show_loading_block(text)
   vim.opt.mouse = ""
   local win_width = math.min(vim.o.columns - 4, #text + 10)
   local win_height = 3
-  local row = math.floor((vim.o.lines - win_height) / 2)
-  local col = math.floor((vim.o.columns - win_width) / 2)
 
   local buf = vim.api.nvim_create_buf(false, true)
   vim.bo[buf].buftype = "nofile"
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].swapfile = false
 
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative = "editor",
-    style = "minimal",
-    border = "rounded",
-    row = row,
-    col = col,
+  local host = require("jujutsu.ui.host")
+  local win = host.open_float(buf, {
     width = win_width,
     height = win_height,
+    border = "rounded",
     zindex = 300,
-    focusable = true,
   })
 
   local map_opts = { buffer = buf, noremap = true, silent = true }
@@ -122,7 +116,11 @@ local function show_loading_block(text)
         local b = vim.api.nvim_win_get_buf(cur)
         if vim.api.nvim_buf_is_valid(b) then cur_ft = vim.bo[b].filetype or "" end
       end
-      local picker_focused = (cur_cfg.relative and cur_cfg.relative ~= "") or cur_ft == "jujutsu-finder"
+      local picker_z = (cur_cfg.zindex or 0) >= 200
+      local picker_focused = cur_ft == "jujutsu-finder"
+        or cur_ft == "jujutsu-input"
+        or (cur_cfg.relative and cur_cfg.relative ~= "" and picker_z)
+        or require("jujutsu.finder").is_active()
       if not picker_focused then pcall(vim.api.nvim_set_current_win, original_win) end
     end
   end

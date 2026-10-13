@@ -21,6 +21,16 @@ local watcher = require("jujutsu.watcher")
 
 local M = {}
 
+---@param path string
+---@param how string
+---@return boolean
+local function open_in_host(path, how)
+  local host = require("jujutsu.ui.host")
+  if not host.active() then return false end
+  host.open_file(path, how)
+  return true
+end
+
 --luacheck: ignore
 ---@type { buf: table, root: string, data: StatusData|nil, items: StatusItem[], line_map: table<integer, StatusItem>, folds: table<string, boolean>, open_diffs: table<string, boolean>, open_changes: table<string, boolean>, open_bookmarks: table<string, boolean>, bookmark_limits: table<string, integer>, recent_limit: integer, refreshing: boolean }|nil
 local instance
@@ -1000,11 +1010,12 @@ local function bind_actions(bufnr)
       end
       if item.data and item.data.file then
         local path = instance.root .. "/" .. item.data.file.path
-        vim.cmd("edit " .. vim.fn.fnameescape(path))
+        if not open_in_host(path, "edit") then vim.cmd("edit " .. vim.fn.fnameescape(path)) end
         return
       end
       if item.data and item.data.path then
-        vim.cmd("edit " .. vim.fn.fnameescape(instance.root .. "/" .. item.data.path))
+        local path = instance.root .. "/" .. item.data.path
+        if not open_in_host(path, "edit") then vim.cmd("edit " .. vim.fn.fnameescape(path)) end
         return
       end
       -- Change / Parent / bookmark target → commit view
@@ -1023,17 +1034,23 @@ local function bind_actions(bufnr)
     VSplitOpen = function()
       local item = item_under_cursor()
       local path = item and item.data and (item.data.file and item.data.file.path or item.data.path)
-      if path then vim.cmd("vsplit " .. vim.fn.fnameescape(instance.root .. "/" .. path)) end
+      if not path then return end
+      local full = instance.root .. "/" .. path
+      if not open_in_host(full, "vsplit") then vim.cmd("vsplit " .. vim.fn.fnameescape(full)) end
     end,
     SplitOpen = function()
       local item = item_under_cursor()
       local path = item and item.data and (item.data.file and item.data.file.path or item.data.path)
-      if path then vim.cmd("split " .. vim.fn.fnameescape(instance.root .. "/" .. path)) end
+      if not path then return end
+      local full = instance.root .. "/" .. path
+      if not open_in_host(full, "split") then vim.cmd("split " .. vim.fn.fnameescape(full)) end
     end,
     TabOpen = function()
       local item = item_under_cursor()
       local path = item and item.data and (item.data.file and item.data.file.path or item.data.path)
-      if path then vim.cmd("tabedit " .. vim.fn.fnameescape(instance.root .. "/" .. path)) end
+      if not path then return end
+      local full = instance.root .. "/" .. path
+      if not open_in_host(full, "tab") then vim.cmd("tabedit " .. vim.fn.fnameescape(full)) end
     end,
     Discard = function()
       local item = item_under_cursor()

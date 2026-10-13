@@ -546,12 +546,20 @@ local function open_panel(opts)
   )
   vim.bo[buf.bufnr].modifiable = false
 
-  vim.cmd("botright vsplit")
-  local win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(win, buf.bufnr)
-  vim.cmd("wincmd L")
-  win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_width(win, panel_width())
+  local host = require("jujutsu.ui.host")
+  local win
+  if host.active() then
+    local frac = cfg().width or 0.38
+    if type(frac) ~= "number" or frac <= 0 or frac > 1 then frac = 0.38 end
+    win = host.open_side(buf.bufnr, frac)
+  else
+    vim.cmd("botright vsplit")
+    win = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_buf(win, buf.bufnr)
+    vim.cmd("wincmd L")
+    win = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_width(win, panel_width())
+  end
   vim.wo[win].wrap = true
   vim.wo[win].linebreak = true
   vim.wo[win].number = false

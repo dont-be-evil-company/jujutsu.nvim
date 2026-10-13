@@ -49,6 +49,31 @@ local function panel_width()
   return math.max(min_w, math.min(max_w, w, cols - 16))
 end
 
+local function view_width(state)
+  if state.win and vim.api.nvim_win_is_valid(state.win) then return vim.api.nvim_win_get_width(state.win) end
+  return 100
+end
+
+local function apply_wrap(state)
+  if not state.win or not vim.api.nvim_win_is_valid(state.win) or not state.buf then return end
+  if state.view == "list" then
+    vim.wo[state.win].wrap = false
+    vim.wo[state.win].linebreak = false
+    return
+  end
+  local width = vim.api.nvim_win_get_width(state.win)
+  local buf_lines = vim.api.nvim_buf_get_lines(state.buf.bufnr, 0, -1, false)
+  local long = false
+  for _, line in ipairs(buf_lines) do
+    if vim.fn.strdisplaywidth(line) > width then
+      long = true
+      break
+    end
+  end
+  vim.wo[state.win].wrap = long
+  vim.wo[state.win].linebreak = long
+end
+
 ---@param state CiPanelState
 ---@param lines string[]
 ---@param highlights? table[]
@@ -57,6 +82,7 @@ local function paint(state, lines, highlights, meta)
   if not state or not state.buf or not vim.api.nvim_buf_is_valid(state.buf.bufnr) then return end
   state.item_ranges = (meta and meta.item_ranges) or {}
   Buffer.render(state.buf, lines, highlights)
+  apply_wrap(state)
 end
 
 local function close_panel()
@@ -144,6 +170,7 @@ local function paint_list(state)
   local lines, hls, meta = render.build_list(state.runs, state.remote, {
     has_more = state.list_has_more,
     list_limit = state.list_limit,
+    width = view_width(state),
   })
   paint(state, lines, hls, meta)
 end
@@ -491,13 +518,22 @@ local function open_panel(opts)
   local buf = Buffer.create("jujutsu://ci", "jujutsu-ci")
   vim.bo[buf.bufnr].modifiable = false
 
-  vim.cmd("botright vsplit")
-  local panel_win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(panel_win, buf.bufnr)
-  vim.cmd("wincmd L")
-  Buffer.focus(buf)
-  panel_win = buf.winid or panel_win
-  vim.api.nvim_win_set_width(panel_win, panel_width())
+  local host = require("jujutsu.ui.host")
+  local panel_win
+  if host.active() then
+    local frac = cfg().width or 0.55
+    if type(frac) ~= "number" or frac <= 0 or frac > 1 then frac = 0.55 end
+    panel_win = host.open_side(buf.bufnr, frac)
+    buf.winid = panel_win
+  else
+    vim.cmd("botright vsplit")
+    panel_win = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_buf(panel_win, buf.bufnr)
+    vim.cmd("wincmd L")
+    Buffer.focus(buf)
+    panel_win = buf.winid or panel_win
+    vim.api.nvim_win_set_width(panel_win, panel_width())
+  end
   vim.wo[panel_win].wrap = false
   vim.wo[panel_win].number = false
   vim.wo[panel_win].relativenumber = false
@@ -522,6 +558,41 @@ local function open_panel(opts)
   bind_keymaps(instance)
   load_list(instance, { reset = true })
   Buffer.ensure_focus(buf)
+
+  local resize_gen = 0
+  vim.api.nvim_create_autocmd({ "WinResized", "VimResized" }, {
+    group = vim.api.nvim_create_augroup("JujutsuCiPanel", { clear = true }),
+    callback = function(ev)
+      if not instance or instance.closing or instance.win ~= win then return end
+      if ev.event == "WinResized" then
+        local hit = false
+        local windows = vim.v.event and vim.v.event.windows or {}
+        for _, id in ipairs(windows) do
+          if id == win then hit = true end
+        end
+        if not hit then return end
+      end
+      if instance.view ~= "list" then
+        apply_wrap(instance)
+        return
+      end
+      resize_gen = resize_gen + 1
+      local gen = resize_gen
+      local item = item_under_cursor(instance)
+      local run_id = item and item.run and item.run.id
+      vim.schedule(function()
+        if gen ~= resize_gen or not instance or instance.closing or instance.view ~= "list" then return end
+        paint_list(instance)
+        if not run_id or not instance.win or not vim.api.nvim_win_is_valid(instance.win) then return end
+        for _, range in ipairs(instance.item_ranges or {}) do
+          if range.run and range.run.id == run_id then
+            pcall(vim.api.nvim_win_set_cursor, instance.win, { range.start_line + 1, 0 })
+            break
+          end
+        end
+      end)
+    end,
+  })
 
   vim.api.nvim_create_autocmd("WinClosed", {
     pattern = tostring(win),

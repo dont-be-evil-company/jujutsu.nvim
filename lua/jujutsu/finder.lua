@@ -1,6 +1,7 @@
 local cli = require("jujutsu.jj.cli")
 local fuzzy = require("jujutsu.buffers.fuzzy_finder")
 local input_buf = require("jujutsu.buffers.input")
+local pickers = require("jujutsu.integrations.pickers")
 
 local M = {}
 
@@ -110,7 +111,20 @@ local function ensure_picker_focus(target_win, filetype)
   vim.defer_fn(function() pcall(vim.api.nvim_del_augroup_by_name, "JujutsuPickerFocus") end, 2100)
 end
 
----Pick from entries using the built-in fuzzy finder.
+function M.is_active() return pickers.is_active() end
+
+local function open_builtin(opts, cb)
+  fuzzy.open({
+    prompt = opts.prompt,
+    entries = opts.entries,
+    allow_multi = opts.allow_multi,
+    allow_free_text = opts.allow_free_text,
+    on_select = once_cb(cb),
+    on_open = function(win) ensure_picker_focus(win, "jujutsu-finder") end,
+  })
+end
+
+---Pick from entries. Uses config.picker when set, otherwise the built-in finder.
 ---@param opts FinderPickOpts
 ---@return string|string[]|nil
 function M.pick(opts)
@@ -122,14 +136,21 @@ function M.pick(opts)
     -- Open on the next tick so popup/status teardown cannot race win enter.
     vim.schedule(function()
       pcall(vim.cmd, "redraw!")
-      fuzzy.open({
-        prompt = opts.prompt,
-        entries = opts.entries,
-        allow_multi = opts.allow_multi,
-        allow_free_text = opts.allow_free_text,
-        on_select = once_cb(cb),
-        on_open = function(win) ensure_picker_focus(win, "jujutsu-finder") end,
-      })
+      local provider = pickers.resolve()
+      if provider == "builtin" then
+        open_builtin(opts, cb)
+        return
+      end
+      pickers.set_active(true)
+      local done = once_cb(function(item)
+        pickers.set_active(false)
+        cb(item)
+      end)
+      local opened = pickers.open(provider, opts, function(item) done(pickers.normalize(item, opts)) end)
+      if not opened then
+        pickers.set_active(false)
+        open_builtin(opts, cb)
+      end
     end)
   end)
 end
@@ -158,14 +179,31 @@ function M.input(opts)
   return async.await(function(cb)
     vim.schedule(function()
       pcall(vim.cmd, "redraw!")
-      input_buf.open({
-        prompt = opts.prompt,
-        default = opts.default,
-        allow_empty = opts.allow_empty,
-        placeholder = opts.placeholder,
-        on_submit = once_cb(cb),
-        on_open = function(win) ensure_picker_focus(win, "jujutsu-input") end,
-      })
+      local function open_builtin_input()
+        input_buf.open({
+          prompt = opts.prompt,
+          default = opts.default,
+          allow_empty = opts.allow_empty,
+          placeholder = opts.placeholder,
+          on_submit = once_cb(cb),
+          on_open = function(win) ensure_picker_focus(win, "jujutsu-input") end,
+        })
+      end
+      local provider = pickers.resolve()
+      if provider == "builtin" or provider == "function" then
+        open_builtin_input()
+        return
+      end
+      pickers.set_active(true)
+      local done = once_cb(function(value)
+        pickers.set_active(false)
+        cb(value)
+      end)
+      local opened = pickers.input(provider, opts, done)
+      if not opened then
+        pickers.set_active(false)
+        open_builtin_input()
+      end
     end)
   end)
 end

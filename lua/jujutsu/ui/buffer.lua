@@ -104,9 +104,11 @@ function M.ensure_focus(buf, opts)
   local function try()
     if not buf or not vim.api.nvim_buf_is_valid(buf.bufnr) then return end
     local cur = vim.api.nvim_get_current_win()
+    if require("jujutsu.finder").is_active() then return end
     if vim.api.nvim_win_is_valid(cur) then
       local cfg = vim.api.nvim_win_get_config(cur)
-      if cfg.relative and cfg.relative ~= "" then return end
+      local z = cfg.zindex or 0
+      if cfg.relative and cfg.relative ~= "" and z >= 200 then return end
       local cur_buf = vim.api.nvim_win_get_buf(cur)
       if vim.api.nvim_buf_is_valid(cur_buf) then
         local ft = vim.bo[cur_buf].filetype
@@ -127,8 +129,10 @@ end
 ---@param buf Buffer
 function M.close(buf)
   if buf.winid and vim.api.nvim_win_is_valid(buf.winid) then
+    local cfg = vim.api.nvim_win_get_config(buf.winid)
+    local floating = cfg.relative and cfg.relative ~= ""
     local wins = vim.api.nvim_tabpage_list_wins(0)
-    if #wins > 1 then
+    if floating or #wins > 1 then
       vim.api.nvim_win_close(buf.winid, true)
     else
       vim.cmd("b#")

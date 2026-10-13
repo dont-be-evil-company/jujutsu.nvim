@@ -96,6 +96,8 @@ local defaults = {
     juu = nil,
   },
   diff_viewer = nil,
+  -- nil | "builtin" | "auto" | "telescope" | "fzf-lua" | "snacks" | "mini" | function
+  picker = nil,
   forge = {
     pr_integration = true,
     review = {

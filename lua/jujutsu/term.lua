@@ -23,27 +23,37 @@ function M.run(cmd, opts)
   vim.bo[buf].bufhidden = "wipe"
   vim.bo[buf].filetype = "jujutsu-term"
 
-  local f = config.values.floating or {}
-  local width = f.width or 0.9
-  local height = f.height or 0.85
-  if width < 1 then width = math.floor(vim.o.columns * width) end
-  if height < 1 then height = math.floor(vim.o.lines * height) end
-  width = math.max(20, math.min(width, vim.o.columns))
-  height = math.max(10, math.min(height, vim.o.lines - 2))
-  local row = math.floor((vim.o.lines - height) / 2)
-  local col = math.floor((vim.o.columns - width) / 2)
-
-  local win = vim.api.nvim_open_win(buf, true, {
-    relative = f.relative or "editor",
-    width = width,
-    height = height,
-    row = row,
-    col = col,
-    style = "minimal",
-    border = f.border or "rounded",
-    title = opts.title or " jujutsu ",
-    title_pos = "center",
-  })
+  local host = require("jujutsu.ui.host")
+  local win
+  if host.active() then
+    win = host.open(buf, { x = 0, y = 0, w = 1, h = 1 }, {
+      border = "none",
+      title = opts.title or " jujutsu ",
+      title_pos = "center",
+      zindex = 70,
+    })
+  else
+    local f = config.values.floating or {}
+    local width = f.width or 0.9
+    local height = f.height or 0.85
+    if width < 1 then width = math.floor(vim.o.columns * width) end
+    if height < 1 then height = math.floor(vim.o.lines * height) end
+    width = math.max(20, math.min(width, vim.o.columns))
+    height = math.max(10, math.min(height, vim.o.lines - 2))
+    local row = math.floor((vim.o.lines - height) / 2)
+    local col = math.floor((vim.o.columns - width) / 2)
+    win = vim.api.nvim_open_win(buf, true, {
+      relative = f.relative or "editor",
+      width = width,
+      height = height,
+      row = row,
+      col = col,
+      style = "minimal",
+      border = f.border or "rounded",
+      title = opts.title or " jujutsu ",
+      title_pos = "center",
+    })
+  end
 
   local closed = false
   local function cleanup(code)

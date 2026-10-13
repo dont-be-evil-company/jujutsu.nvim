@@ -22,10 +22,17 @@ local function close_view()
   if not instance or instance.closing then return end
   instance.closing = true
   local tab = instance.tabpage
+  local floating = instance.floating
+  local wins = instance.wins
+  if floating and wins then
+    for _, w in ipairs(wins) do
+      if w and vim.api.nvim_win_is_valid(w) then pcall(vim.api.nvim_win_close, w, true) end
+    end
+  end
   diff_mod.destroy(instance.diff)
   panel_mod.destroy(instance.panel)
   instance = nil
-  if tab and vim.api.nvim_tabpage_is_valid(tab) then
+  if not floating and tab and vim.api.nvim_tabpage_is_valid(tab) then
     local cur = vim.api.nvim_get_current_tabpage()
     if cur ~= tab then vim.api.nvim_set_current_tabpage(tab) end
     pcall(vim.cmd, "tabclose")
@@ -167,16 +174,11 @@ local function open_description(view)
   local buf = Buffer.create("jujutsu://file-history/desc/" .. entry.change_id, "jujutsu-file-history-desc")
   local width = math.min(80, math.floor(vim.o.columns * 0.7))
   local height = math.min(math.max(#lines + 2, 6), math.floor(vim.o.lines * 0.5))
-  local win = vim.api.nvim_open_win(buf.bufnr, true, {
-    relative = "editor",
+  local win = require("jujutsu.ui.host").open_float(buf.bufnr, {
     width = width,
     height = height,
-    row = math.floor((vim.o.lines - height) / 2),
-    col = math.floor((vim.o.columns - width) / 2),
-    style = "minimal",
-    border = "rounded",
     title = " " .. entry.change_id .. " ",
-    title_pos = "center",
+    zindex = 90,
   })
   Buffer.render(buf, lines, {
     { line = 0, col = 0, end_col = #(lines[1] or ""), hl = "JujutsuDescription" },
@@ -300,19 +302,32 @@ function M.open(root, opts)
   local panel_height = fh.panel_height or 16
   local path = opts.path
 
-  vim.cmd("tabnew")
-  local tabpage = vim.api.nvim_get_current_tabpage()
-  local left_win = vim.api.nvim_get_current_win()
-
-  vim.cmd("vsplit")
-  local right_win = vim.api.nvim_get_current_win()
-
-  vim.cmd("botright split")
-  local panel_win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_height(panel_win, panel_height)
+  local host = require("jujutsu.ui.host")
+  local regions = host.diff_regions(panel_height)
+  local tabpage, left_win, right_win, panel_win
+  if regions then
+    local laid = host.tiles({
+      { key = "left", region = regions.left },
+      { key = "right", region = regions.right },
+      { key = "panel", region = regions.panel, enter = true },
+    })
+    left_win = laid.left
+    right_win = laid.right
+    panel_win = laid.panel
+    tabpage = nil
+  else
+    vim.cmd("tabnew")
+    tabpage = vim.api.nvim_get_current_tabpage()
+    left_win = vim.api.nvim_get_current_win()
+    vim.cmd("vsplit")
+    right_win = vim.api.nvim_get_current_win()
+    vim.cmd("botright split")
+    panel_win = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_height(panel_win, panel_height)
+  end
 
   local panel = panel_mod.create(root, panel_win, path)
-  local diff = diff_mod.create(root, left_win, right_win)
+  local diff = diff_mod.create(root, left_win, right_win, { host_top = regions and regions.top or nil })
 
   instance = {
     root = root,
@@ -320,6 +335,8 @@ function M.open(root, opts)
     panel = panel,
     diff = diff,
     closing = false,
+    floating = regions ~= nil,
+    wins = { left_win, right_win, panel_win },
   }
 
   panel.entries = panel_mod.load_entries(root, limit, path)
@@ -354,7 +371,7 @@ function M.open(root, opts)
   vim.api.nvim_create_autocmd("TabClosed", {
     group = vim.api.nvim_create_augroup("JujutsuFileHistory", { clear = true }),
     callback = function()
-      if not instance or instance.closing then return end
+      if not instance or instance.closing or not instance.tabpage then return end
       if not vim.api.nvim_tabpage_is_valid(instance.tabpage) then
         instance.closing = true
         diff_mod.destroy(instance.diff)

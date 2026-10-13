@@ -63,6 +63,7 @@ Forge review (see |jujutsu-review|):
       codediff = nil,
     },
     diff_viewer = nil,  -- "diffview" | "codediff" | nil
+    picker = nil,       -- nil | "builtin" | "auto" | "telescope" | "fzf-lua" | "snacks" | "mini"
     forge = {
       pr_integration = true,
       review = { enabled = true },
@@ -168,7 +169,19 @@ Forge popup (`g`): review PRs, browse/create PRs and issues, list/trigger CI
 6. INTEGRATIONS                                           *jujutsu-integrations*
 
 Selections (revisions, bookmarks, remotes, PRs, …) use the built-in fuzzy
-finder.
+finder by default. Set `picker` to use another UI:
+
+- nil or `"builtin"` - built-in finder and input
+- `"auto"` - snacks, then mini.pick, fzf-lua, telescope, then built-in
+- `"telescope"`, `"fzf-lua"`, `"snacks"`, `"mini"`
+- a function `function(opts, callback) end` where `opts` has `prompt`,
+  `entries` (strings), `allow_multi`, and `allow_free_text`. Call `callback`
+  once with nil, a string, or a list of strings.
+
+`kind = "floating"` opens the status buffer in a float. Later plugin windows
+(popups, diff, annotate, file history, CI, issue panel, the finder) are placed
+inside that float instead of on the tabpage behind it. Other `kind` values are
+unchanged.
 
 Diff popup action "External viewer" uses diffview or codediff when available
 (typically requires a git-colocated jj repository).
@@ -236,6 +249,20 @@ Built-in `jj file annotate` (blame) UI.
 Layout: annotated file on top (change id, author, date, content); bottom panel
 lists commits that touched the file (same data source as Diff popup `dc`).
 Selecting a commit highlights its lines and jumps to the first match.
+Moving the cursor in the annotate buffer selects that line's commit in the
+panel. When the window is narrow, author and date shrink, then each source
+line is stacked under its metadata.
+
+Keys in the annotate buffer: ~
+  <CR>     Drill into the cursor line: commit message, line text, and the
+           commits from file history that still appear in this file.
+           <CR> in that list opens the file diff for the commit.
+  ]c [c    Next or previous annotate hunk
+  q        Close
+
+Keys in the history panel: ~
+  <CR> o   Highlight the commit
+  <Tab>    Next or previous commit
 
 Entry points: ~
 - Diff popup `da` - file under cursor in the status buffer

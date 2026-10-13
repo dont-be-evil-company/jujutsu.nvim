@@ -3,3 +3,9 @@ extends: default
 rules:
   truthy:
     check-keys: false
+ignore:
+  - pnpm-lock.yaml
+  - node_modules
+  - .git
+  - .jj
+  - .pnpm-store

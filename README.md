@@ -34,7 +34,8 @@ pick it in the setup:
 - [`diffview.nvim`](https://github.com/sindrets/diffview.nvim) or
 - [`codediff.nvim`](https://github.com/esmuellert/codediff.nvim)
 
-Selections (revisions, bookmarks, PRs, …) use the built-in fuzzy finder.
+Selections (revisions, bookmarks, PRs, …) use the built-in fuzzy finder
+unless `picker` is set (see below).
 
 ## Installation (`lazy.nvim`)
 
@@ -67,6 +68,8 @@ local jj = require("jujutsu")
 
 jj.setup({
   kind = "tab", -- tab | split | vsplit | floating | replace | auto | ...
+  -- With kind = "floating", popups, diffs, panels, and the finder open inside that float.
+  picker = nil, -- nil | "builtin" | "auto" | "telescope" | "fzf-lua" | "snacks" | "mini" | function
   mappings = {
     -- set a key to false to disable a default
     status = {

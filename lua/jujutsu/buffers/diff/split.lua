@@ -56,6 +56,7 @@ end
 ---@field root string
 ---@field uri_prefix string
 ---@field hidden_side "LEFT"|"RIGHT"|nil
+---@field host_top? { x: number, y: number, w: number, h: number }
 
 ---@param root string
 ---@param left_win integer
@@ -88,6 +89,7 @@ function M.create(root, left_win, right_win, opts)
     root = root,
     uri_prefix = prefix,
     hidden_side = nil,
+    host_top = opts.host_top,
   }
 end
 
@@ -171,10 +173,50 @@ local function recreate_right(state)
   if win_valid(cur) then pcall(vim.api.nvim_set_current_win, cur) end
 end
 
+---@param state DiffSplit
+---@param hide "LEFT"|"RIGHT"|nil
+local function apply_host_layout(state, hide)
+  local host = require("jujutsu.ui.host")
+  local top = state.host_top or { x = 0, y = 0, w = 1, h = 0.75 }
+  local function ensure(which, region)
+    local win = state[which .. "_win"]
+    local buf = state[which .. "_buf"]
+    if not win_valid(win) then
+      win = host.open(buf.bufnr, region, { border = "none", enter = false })
+      state[which .. "_win"] = win
+      buf.winid = win
+      if win then apply_side_opts(win) end
+    else
+      host.place(win, region)
+    end
+  end
+  local function drop(which)
+    local win = state[which .. "_win"]
+    if win_valid(win) then pcall(vim.api.nvim_win_close, win, true) end
+    state[which .. "_win"] = nil
+    state[which .. "_buf"].winid = nil
+  end
+  if hide == "LEFT" then
+    drop("left")
+    ensure("right", top)
+  elseif hide == "RIGHT" then
+    drop("right")
+    ensure("left", top)
+  else
+    ensure("left", { x = top.x, y = top.y, w = top.w / 2, h = top.h })
+    ensure("right", { x = top.x + top.w / 2, y = top.y, w = top.w / 2, h = top.h })
+  end
+  state.hidden_side = hide
+end
+
 ---Ensure the visible layout matches `hide` ("LEFT" / "RIGHT" / nil = both).
 ---@param state DiffSplit
 ---@param hide "LEFT"|"RIGHT"|nil
 local function apply_layout(state, hide)
+  if state.host_top then
+    apply_host_layout(state, hide)
+    return
+  end
   if hide ~= "LEFT" and not win_valid(state.left_win) then recreate_left(state) end
   if hide ~= "RIGHT" and not win_valid(state.right_win) then recreate_right(state) end
 

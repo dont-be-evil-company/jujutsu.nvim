@@ -32,19 +32,9 @@ function M.open(opts)
   vim.bo[bufnr].filetype = "jujutsu-input"
 
   local height = 4
-  local win = vim.api.nvim_open_win(bufnr, true, {
-    relative = "editor",
-    row = vim.o.lines - height - 2,
-    col = 0,
-    width = vim.o.columns,
-    height = height,
-    style = "minimal",
-    border = "rounded",
-    title = " " .. prompt .. " ",
-    title_pos = "left",
-    focusable = true,
-    zindex = 200,
-  })
+  local host = require("jujutsu.ui.host")
+  local win = vim.api.nvim_open_win(bufnr, true, host.bottom_config(height, { title = " " .. prompt .. " " }))
+  host.track_bottom(win, height)
   vim.wo[win].cursorline = false
   vim.wo[win].number = false
   vim.wo[win].wrap = false
