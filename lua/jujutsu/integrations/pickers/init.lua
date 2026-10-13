@@ -147,9 +147,7 @@ end
 ---@return integer|nil win
 ---@return string|nil kind
 local function resolve_prompt()
-  if pin_win and vim.api.nvim_win_is_valid(pin_win) then
-    return pin_win, kind_of(pin_win) or pin_kind
-  end
+  if pin_win and vim.api.nvim_win_is_valid(pin_win) then return pin_win, kind_of(pin_win) or pin_kind end
   for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
     local kind = kind_of(win)
     if kind then return win, kind end

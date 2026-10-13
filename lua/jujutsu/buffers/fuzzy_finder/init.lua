@@ -60,7 +60,9 @@ function M.open(opts)
   vim.bo[bufnr].filetype = "jujutsu-finder"
 
   local host = require("jujutsu.ui.host")
-  if host.active() then height = math.min(height, math.max(4, math.floor(vim.api.nvim_win_get_height(host.win()) * 0.45))) end
+  if host.active() then
+    height = math.min(height, math.max(4, math.floor(vim.api.nvim_win_get_height(host.win()) * 0.45)))
+  end
   local win = vim.api.nvim_open_win(bufnr, true, host.bottom_config(height, { title = " " .. prompt .. " " }))
   host.track_bottom(win, height)
   vim.wo[win].cursorline = false
