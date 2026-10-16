@@ -448,7 +448,7 @@ function M.open_float(bufnr, opts)
     style = "minimal",
     border = opts.border or "rounded",
     title = opts.title,
-    title_pos = opts.title_pos or "center",
+    title_pos = opts.title and (opts.title_pos or "center") or nil,
     zindex = opts.zindex or 80,
   })
 end
