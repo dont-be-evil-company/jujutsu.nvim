@@ -53,6 +53,7 @@ function M.open(opts)
 
   local height = math.max(10, math.floor(vim.o.lines * 0.4))
   local bufnr = vim.api.nvim_create_buf(false, true)
+  vim.b[bufnr].copilot_enabled = false
   vim.bo[bufnr].buftype = "nofile"
   vim.bo[bufnr].bufhidden = "wipe"
   vim.bo[bufnr].swapfile = false

@@ -25,6 +25,7 @@ function M.open(opts)
   local augroup = vim.api.nvim_create_augroup("JujutsuInput" .. tostring(vim.uv.hrtime()), { clear = true })
 
   local bufnr = vim.api.nvim_create_buf(false, true)
+  vim.b[bufnr].copilot_enabled = false
   vim.bo[bufnr].buftype = "nofile"
   vim.bo[bufnr].bufhidden = "wipe"
   vim.bo[bufnr].swapfile = false
