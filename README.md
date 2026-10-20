@@ -1,6 +1,6 @@
 <div align="center">
 
-![jujutsu.nvim Logo](logo.svg)
+![jujutsu.nvim Logo](assets/logo-256x256.png)
 
 # jujutsu.nvim
 
@@ -22,10 +22,17 @@ See [`CHANGELOG.md`](CHANGELOG.md) for a full list of changes.
 
 ## Requirements
 
-- Neovim 0.10+
+- Neovim 0.12+
 - [`jj`](https://jj-vcs.github.io/jj/) on your `PATH`
 
-**No required Neovim plugins.** Optional:
+**No required Neovim plugins.
+
+### Optional 3rd party plugins
+
+`jujutsu.nvim` comes with batteries included,
+but you can optionally install external plugins for additional/different features.
+
+#### Diff Viewer
 
 The built-in diff viewer should work perfectly fine,
 but if you absolutely must, you can install one of the following diff viewers and
@@ -34,8 +41,31 @@ pick it in the setup:
 - [`diffview.nvim`](https://github.com/sindrets/diffview.nvim) or
 - [`codediff.nvim`](https://github.com/esmuellert/codediff.nvim)
 
+```lua
+local jj = require("jujutsu")
+jj.setup({
+  integrations = {
+    -- nil = auto-detect, true = force, false = disable
+    diffview = nil,
+    codediff = nil,
+  },
+  -- "diffview" | "codediff" | nil = auto
+  diff_viewer = nil,
+})
+```
+
+#### Fuzzy Finder/Picker
+
 Selections (revisions, bookmarks, PRs, …) use the built-in fuzzy finder
 unless `picker` is set (see below).
+
+```lua
+local jj = require("jujutsu")
+jj.setup({
+  -- nil | "builtin" | "auto" | "telescope" | "fzf-lua" | "snacks" | "mini" | function
+  picker = nil,
+})
+```
 
 ## Installation (`lazy.nvim`)
 
