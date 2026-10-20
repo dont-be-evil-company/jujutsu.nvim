@@ -42,8 +42,9 @@ end
 
 ---Selection lists are not file pickers. A preview window also steals the prompt.
 ---@param on_close fun()
+---@param on_ready? fun(bufnr: integer)
 ---@return table
-local function winopts(on_close)
+local function winopts(on_close, on_ready)
   local prev_on_create
   pcall(function() prev_on_create = require("fzf-lua.config").globals.winopts.on_create end)
   return {
@@ -54,34 +55,74 @@ local function winopts(on_close)
     on_create = function(e)
       if type(prev_on_create) == "function" then pcall(prev_on_create, e) end
       if e and e.winid then require("jujutsu.integrations.pickers").claim(e.winid, "terminal") end
+      if type(on_ready) == "function" and e and e.bufnr then on_ready(e.bufnr) end
     end,
     on_close = on_close,
   }
 end
 
----@param opts { prompt?: string, entries: string[], allow_multi?: boolean, allow_free_text?: boolean }
+---@param opts { prompt?: string, entries: string[], allow_multi?: boolean, allow_free_text?: boolean, on_load_more?: fun(current: string[]): string[]|nil }
 ---@param cb fun(item: string|string[]|nil)
 function M.pick(opts, cb)
   local fzf = require("fzf-lua")
   local finish = finish_once(cb)
   local choosing = false
-  local fzf_opts = {}
+  local reloading = false
+  local entries = opts.entries or {}
+  local fzf_opts = { ["--tiebreak"] = "index" }
   if opts.allow_multi then fzf_opts["--multi"] = true end
   if opts.allow_free_text then fzf_opts["--print-query"] = true end
 
-  fzf.fzf_exec(opts.entries or {}, {
+  -- Re-read `entries` on every start, including resume after load-more.
+  local function contents(stream)
+    coroutine.wrap(function()
+      for _, text in ipairs(entries) do
+        stream(text)
+      end
+      stream(nil)
+    end)()
+  end
+
+  ---fzf has no ctrl-+ key name. Map it on the terminal buffer, then exit so
+  ---resume reopens the same picker and reruns `contents` with the grown list.
+  ---@param bufnr integer
+  local function load_more(bufnr)
+    if reloading or type(opts.on_load_more) ~= "function" then return end
+    local next_entries = opts.on_load_more(entries)
+    if type(next_entries) ~= "table" then return end
+    entries = next_entries
+    opts.entries = entries
+    local chan = vim.api.nvim_buf_is_valid(bufnr) and vim.bo[bufnr].channel or 0
+    if chan <= 0 then return end
+    reloading = true
+    vim.api.nvim_chan_send(chan, "\27")
+  end
+
+  local function on_ready(bufnr)
+    if type(opts.on_load_more) ~= "function" then return end
+    local map_opts = { buffer = bufnr, silent = true, nowait = true, noremap = true }
+    vim.keymap.set({ "n", "t" }, "<C-+>", function() load_more(bufnr) end, map_opts)
+    vim.keymap.set("n", "+", function() load_more(bufnr) end, map_opts)
+  end
+
+  fzf.fzf_exec(contents, {
     prompt = (opts.prompt or "select") .. "> ",
     previewer = false,
     fzf_opts = fzf_opts,
     winopts = winopts(function()
+      if reloading then
+        reloading = false
+        vim.schedule(function() pcall(fzf.resume) end)
+        return
+      end
       vim.schedule(function()
         if not choosing then finish(nil) end
       end)
-    end),
+    end, on_ready),
     actions = {
       ["default"] = function(selected, o)
         choosing = true
-        finish(selection_value(selected, o, opts.entries or {}, opts.allow_free_text, opts.allow_multi))
+        finish(selection_value(selected, o, entries, opts.allow_free_text, opts.allow_multi))
       end,
     },
   })

@@ -34,6 +34,8 @@ end
 ---@field allow_free_text? boolean
 ---@field cwd? string
 ---@field refocus_status? boolean
+---Return the full replacement list, or nil when history is exhausted.
+---@field on_load_more? fun(current: string[]): string[]|nil
 
 ---@class FinderInputOpts
 ---@field prompt? string
@@ -119,6 +121,7 @@ local function open_builtin(opts, cb)
     entries = opts.entries,
     allow_multi = opts.allow_multi,
     allow_free_text = opts.allow_free_text,
+    on_load_more = opts.on_load_more,
     on_select = once_cb(cb),
     on_open = function(win) ensure_picker_focus(win, "jujutsu-finder") end,
   })
@@ -208,25 +211,95 @@ function M.input(opts)
   end)
 end
 
+local REV_PAGE = 100
+
+local REV_TMPL = field_template({
+  "change_id.short(8)",
+  "description.first_line()",
+  'bookmarks.join(",")',
+  'committer.timestamp().utc().format("%Y-%m-%d %H:%M:%S")',
+})
+
+---Newest `limit` revisions by committer timestamp, newest first.
+---@param cwd string
+---@param limit integer
+---@return { text: string, ts: string }[]|nil entries
+---@return string? err
+local function load_revisions(cwd, limit)
+  local res = cli.log
+    .revisions(string.format("latest(all(), %d)", limit)).no_graph
+    .template(REV_TMPL)
+    .limit(limit)
+    .call({ cwd = cwd, hidden = true })
+  if not res or res.code ~= 0 then
+    local err = res and table.concat(res.stderr or {}, "\n") or "jj log failed"
+    if err == "" then err = "jj log failed" end
+    return nil, err
+  end
+  local entries = {}
+  for _, f in ipairs(parse_sep_records(table.concat(res.stdout, "\n"))) do
+    if f[1] and f[1] ~= "" then
+      local bm = f[3] and f[3] ~= "" and (" [" .. f[3] .. "]") or ""
+      table.insert(entries, {
+        text = string.format("%s  %s%s", f[1], f[2] or "", bm),
+        ts = f[4] or "",
+      })
+    end
+  end
+  table.sort(entries, function(a, b)
+    if a.ts ~= b.ts then return a.ts > b.ts end
+    return a.text < b.text
+  end)
+  return entries
+end
+
+---@param list { text: string }[]
+---@return string[]
+local function revision_texts(list)
+  local texts = {}
+  for _, entry in ipairs(list) do
+    texts[#texts + 1] = entry.text
+  end
+  return texts
+end
+
 ---@param opts? { prompt?: string, cwd?: string }
 ---@return string|nil
 function M.pick_revision(opts)
   opts = opts or {}
   local cwd = opts.cwd or require("jujutsu.jj.repository").root() or vim.fn.getcwd()
-  local tmpl = field_template({
-    "change_id.short(8)",
-    "description.first_line()",
-    'bookmarks.join(",")',
-  })
-  local res = cli.log.revisions("all()").no_graph.template(tmpl).limit(100).call({ cwd = cwd, hidden = true })
-  local entries = {}
-  for _, f in ipairs(parse_sep_records(table.concat(res.stdout, "\n"))) do
-    if f[1] and f[1] ~= "" then
-      local bm = f[3] and f[3] ~= "" and (" [" .. f[3] .. "]") or ""
-      table.insert(entries, { text = string.format("%s  %s%s", f[1], f[2] or "", bm) })
-    end
+  local limit = REV_PAGE
+  local entries, err = load_revisions(cwd, limit)
+  if not entries then
+    require("jujutsu.notify").error(err or "Failed to list revisions")
+    return nil
   end
-  local selected = M.pick({ prompt = opts.prompt or "revision", entries = entries })
+
+  local exhausted = false
+  local busy = false
+  local selected = M.pick({
+    prompt = opts.prompt or "revision",
+    entries = entries,
+    on_load_more = function(current)
+      if exhausted then return nil end
+      if busy then return current end
+      busy = true
+      local next_entries, next_err = load_revisions(cwd, limit * 2)
+      busy = false
+      if not next_entries then
+        require("jujutsu.notify").error(next_err or "Failed to load more revisions")
+        return current
+      end
+      local texts = revision_texts(next_entries)
+      if #texts <= #(current or {}) then
+        exhausted = true
+        require("jujutsu.notify").info("No older revisions")
+        return nil
+      end
+      limit = limit * 2
+      return texts
+    end,
+  })
   if not selected then return nil end
   return vim.split(selected, "%s+")[1]
 end

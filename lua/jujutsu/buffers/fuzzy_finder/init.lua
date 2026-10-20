@@ -28,6 +28,8 @@ end
 ---@field on_select fun(item: string|string[]|nil)
 ---@field on_open? fun(win: integer, bufnr: integer)
 ---@field on_refresh? fun() optional callback after forge cache refresh
+---Return the full replacement list, or nil when there is nothing more to load.
+---@field on_load_more? fun(current: string[]): string[]|nil
 
 ---@param opts FuzzyFinderOpts
 function M.open(opts)
@@ -41,9 +43,10 @@ function M.open(opts)
     table.insert(entries, type(e) == "table" and (e.text or tostring(e[1])) or tostring(e))
   end
 
-  local query, cursor = "", 1
+  local query, cursor, scroll = "", 1, 1
   local selected = {}
   local filtered = {}
+  local can_load_more = type(opts.on_load_more) == "function"
   local closed = false
   local result_set = false
   local result_value = nil ---@type string|string[]|nil
@@ -97,12 +100,21 @@ function M.open(opts)
 
   local function refilter()
     filtered = {}
-    for _, text in ipairs(entries) do
+    for i, text in ipairs(entries) do
       local s = score_match(query, text)
-      if s then table.insert(filtered, { text = text, score = s }) end
+      if s then table.insert(filtered, { text = text, score = s, index = i }) end
     end
-    table.sort(filtered, function(a, b) return a.score > b.score end)
+    table.sort(filtered, function(a, b)
+      if a.score ~= b.score then return a.score > b.score end
+      return a.index < b.index
+    end)
     cursor = math.max(1, math.min(cursor, math.max(#filtered, 1)))
+  end
+
+  local function reveal(max_results)
+    if cursor < scroll then scroll = cursor end
+    if cursor >= scroll + max_results then scroll = cursor - max_results + 1 end
+    if scroll < 1 then scroll = 1 end
   end
 
   local function current() return filtered[cursor] and filtered[cursor].text end
@@ -120,13 +132,13 @@ function M.open(opts)
 
     local lines = { "> " .. query }
     local max_results = math.max(1, height - 2)
-    local shown = 0
-    for i, item in ipairs(filtered) do
-      if shown >= max_results then break end
+    reveal(max_results)
+    local last = math.min(#filtered, scroll + max_results - 1)
+    for i = scroll, last do
+      local item = filtered[i]
       local mark = selected[item.text] and "*" or " "
       local cur = i == cursor and ">" or " "
       table.insert(lines, string.format("%s%s %s", cur, mark, item.text))
-      shown = shown + 1
     end
     if #filtered == 0 then
       table.insert(lines, allow_free_text and "  (no matches - Enter to use typed text)" or "  (no matches)")
@@ -134,6 +146,7 @@ function M.open(opts)
 
     local hint = allow_multi and "<cr> confirm  <tab> toggle  <c-n>/<c-p> move  <esc> abort  <c-l> refresh"
       or "<cr> confirm  <c-n>/<c-p> move  <esc> abort  <c-l> refresh"
+    if can_load_more then hint = hint .. "  + load more" end
     vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
     vim.api.nvim_buf_clear_namespace(bufnr, ns, 0, -1)
     vim.api.nvim_buf_set_extmark(bufnr, ns, 0, 0, {
@@ -164,6 +177,7 @@ function M.open(opts)
     if next_query ~= query then
       query = next_query
       cursor = 1
+      scroll = 1
     end
     redraw()
   end
@@ -214,6 +228,39 @@ function M.open(opts)
       redraw()
     end
   end)
+  local function load_more()
+    if not can_load_more or closed then return end
+    local keep = current()
+    local next_entries = opts.on_load_more(entries)
+    if next_entries == nil then
+      can_load_more = false
+      redraw()
+      return
+    end
+    if type(next_entries) ~= "table" then return end
+    local replaced = {}
+    for _, entry in ipairs(next_entries) do
+      local text = type(entry) == "table" and (entry.text or tostring(entry[1] or "")) or tostring(entry)
+      if text ~= "" then replaced[#replaced + 1] = text end
+    end
+    entries = replaced
+    redraw()
+    if keep then
+      for i, item in ipairs(filtered) do
+        if item.text == keep then
+          cursor = i
+          redraw()
+          break
+        end
+      end
+    end
+  end
+
+  if can_load_more then
+    map({ "n", "i" }, "<C-+>", load_more)
+    map("n", "+", load_more)
+  end
+
   -- Keep insert-mode <C-r> free for register paste; use <C-l> for cache refresh.
   map({ "n", "i" }, "<c-l>", function()
     local cache = require("jujutsu.forge.cache")

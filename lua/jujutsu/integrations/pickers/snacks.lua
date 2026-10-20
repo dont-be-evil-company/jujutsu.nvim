@@ -44,14 +44,29 @@ local function run_picker(picker_opts)
   error("snacks.picker is unavailable")
 end
 
----@param opts { prompt?: string, entries: string[], allow_multi?: boolean, allow_free_text?: boolean }
+local function apply_items(picker, texts)
+  local items = items_from(texts)
+  local list = picker and picker.list
+  if type(list) == "table" then
+    if type(list.set_items) == "function" then
+      list:set_items(items)
+      return
+    end
+    list.items = items
+    if type(list.update) == "function" then list:update() end
+  end
+  if picker and type(picker.update) == "function" then picker:update() end
+end
+
+---@param opts { prompt?: string, entries: string[], allow_multi?: boolean, allow_free_text?: boolean, on_load_more?: fun(current: string[]): string[]|nil }
 ---@param cb fun(item: string|string[]|nil)
 function M.pick(opts, cb)
   local finish = finish_once(cb)
   local choosing = false
-  run_picker({
+  local entries = opts.entries or {}
+  local picker_opts = {
     title = opts.prompt or "select",
-    items = items_from(opts.entries),
+    items = items_from(entries),
     layout = { preset = "select" },
     format = function(item) return { { item_text(item) } } end,
     on_show = function(picker)
@@ -62,6 +77,22 @@ function M.pick(opts, cb)
       local list = picker and picker.list
       local list_win = list and (list.win and (list.win.win or list.win) or list)
       if type(list_win) == "number" then mod.raise(list_win) end
+      if type(opts.on_load_more) == "function" and type(input_win) == "number" then
+        local bufnr = vim.api.nvim_win_get_buf(input_win)
+        if vim.api.nvim_buf_is_valid(bufnr) and not vim.b[bufnr].jujutsu_load_more then
+          vim.b[bufnr].jujutsu_load_more = true
+          local function load_more()
+            local next_entries = opts.on_load_more(entries)
+            if type(next_entries) ~= "table" then return end
+            entries = next_entries
+            opts.entries = entries
+            apply_items(picker, entries)
+          end
+          local map_opts = { buffer = bufnr, silent = true, nowait = true, noremap = true }
+          vim.keymap.set({ "n", "i" }, "<C-+>", load_more, map_opts)
+          vim.keymap.set("n", "+", load_more, map_opts)
+        end
+      end
     end,
     confirm = function(picker, item)
       choosing = true
@@ -90,7 +121,8 @@ function M.pick(opts, cb)
         if not choosing then finish(nil) end
       end)
     end,
-  })
+  }
+  run_picker(picker_opts)
 end
 
 ---@param opts { prompt?: string, default?: string, allow_empty?: boolean }

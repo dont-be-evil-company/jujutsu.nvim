@@ -18,13 +18,14 @@ local function current_query()
   return ""
 end
 
----@param opts { prompt?: string, entries: string[], allow_multi?: boolean, allow_free_text?: boolean }
+---@param opts { prompt?: string, entries: string[], allow_multi?: boolean, allow_free_text?: boolean, on_load_more?: fun(current: string[]): string[]|nil }
 ---@param cb fun(item: string|string[]|nil)
 ---@param input_mode? boolean
 function M.pick(opts, cb, input_mode)
   local MiniPick = require("mini.pick")
   local finish = finish_once(cb)
   local choosing = false
+  local entries = opts.entries or {}
   local mappings = nil
   if opts.allow_free_text or input_mode then
     mappings = {
@@ -38,6 +39,20 @@ function M.pick(opts, cb, input_mode)
           pcall(MiniPick.stop)
         end,
       },
+    }
+  end
+  if type(opts.on_load_more) == "function" and not input_mode then
+    mappings = mappings or {}
+    -- mini.pick has no separate normal mode; `+` would be typed into the query.
+    mappings.load_more = {
+      char = "<C-+>",
+      func = function()
+        local next_entries = opts.on_load_more(entries)
+        if type(next_entries) ~= "table" then return end
+        entries = next_entries
+        opts.entries = entries
+        pcall(MiniPick.set_picker_items, entries, { do_match = true })
+      end,
     }
   end
 

@@ -9,7 +9,7 @@ local function finish_once(cb)
   end
 end
 
----@param opts { prompt?: string, entries: string[], allow_multi?: boolean, allow_free_text?: boolean }
+---@param opts { prompt?: string, entries: string[], allow_multi?: boolean, allow_free_text?: boolean, on_load_more?: fun(current: string[]): string[]|nil }
 ---@param cb fun(item: string|string[]|nil)
 function M.pick(opts, cb)
   local pickers = require("telescope.pickers")
@@ -25,10 +25,22 @@ function M.pick(opts, cb)
       prompt_title = opts.prompt or "select",
       finder = finders.new_table({ results = opts.entries or {} }),
       sorter = conf.generic_sorter({}),
-      attach_mappings = function(prompt_bufnr, _)
+      attach_mappings = function(prompt_bufnr, map)
         local pickers_mod = require("jujutsu.integrations.pickers")
         local win = vim.api.nvim_get_current_win()
         pickers_mod.claim(win, "insert")
+        if type(opts.on_load_more) == "function" then
+          local function load_more()
+            local next_entries = opts.on_load_more(opts.entries)
+            if type(next_entries) ~= "table" then return end
+            opts.entries = next_entries
+            local picker = action_state.get_current_picker(prompt_bufnr)
+            if not picker then return end
+            picker:refresh(finders.new_table({ results = next_entries }), { reset_prompt = false })
+          end
+          map({ "i", "n" }, "<C-+>", load_more)
+          map("n", "+", load_more)
+        end
         pcall(function()
           local picker = action_state.get_current_picker(prompt_bufnr)
           if not picker then return end

@@ -233,7 +233,7 @@ local adapters = {
 }
 
 ---@param provider string
----@param opts { prompt?: string, entries?: any[], allow_multi?: boolean, allow_free_text?: boolean }
+---@param opts { prompt?: string, entries?: any[], allow_multi?: boolean, allow_free_text?: boolean, on_load_more?: fun(current: string[]): string[]|nil }
 ---@param cb fun(item: string|string[]|nil)
 ---@return boolean opened
 function M.open(provider, opts, cb)
@@ -242,6 +242,7 @@ function M.open(provider, opts, cb)
     entries = M.texts(opts.entries),
     allow_multi = opts.allow_multi,
     allow_free_text = opts.allow_free_text,
+    on_load_more = opts.on_load_more,
   }
   if provider == "function" then
     local fn = config.values.picker
