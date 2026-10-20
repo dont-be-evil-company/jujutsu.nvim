@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+---
+version: '3'
+
+tasks:
+  default:
+    desc: List all available tasks
+    cmds:
+      - task --list
+    silent: true
+  generate:changelog:
+    desc: Generate changelog from git commits
+    cmds:
+      - ./scripts/generate-changelog.sh
+    silent: true

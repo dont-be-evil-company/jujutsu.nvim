@@ -38,7 +38,7 @@ The built-in diff viewer should work perfectly fine,
 but if you absolutely must, you can install one of the following diff viewers and
 pick it in the setup:
 
-- [`diffview.nvim`](https://github.com/sindrets/diffview.nvim) or
+- [`diffview.nvim`](https://github.com/sindrets/diffview.nvim)
 - [`codediff.nvim`](https://github.com/esmuellert/codediff.nvim)
 
 ```lua
@@ -57,7 +57,12 @@ jj.setup({
 #### Fuzzy Finder/Picker
 
 Selections (revisions, bookmarks, PRs, …) use the built-in fuzzy finder
-unless `picker` is set (see below).
+unless `picker` is set to one of the following:
+
+- [`telescope`](https://github.com/nvim-telescope/telescope.nvim)
+- [`fzf-lua`](https://github.com/ibhagwan/fzf-lua)
+- [`snacks`](https://github.com/folke/snacks.nvim/blob/main/docs/picker.md)
+- [`mini`](https://github.com/nvim-mini/mini.pick)
 
 ```lua
 local jj = require("jujutsu")

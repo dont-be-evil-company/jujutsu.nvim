@@ -1,3 +1,49 @@
+## [2.1.2](https://github.com/dont-be-evil-company/jujutsu.nvim/compare/v2.1.1...v2.1.2) (2026-10-20)
+
+### Features
+
+* **docs:** change logo and update README ([b2afa9b](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/b2afa9b702557a4b521ac1d31f65da1ae1641570))
+
+### Bug Fixes
+
+* **float:** wo title ([883604d](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/883604dac6f632f507298da76c0eacc42193c2ec))
+* **input:** disable copilot in inputs ([3ef0bd0](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/3ef0bd01d68e11e6d34c1e8ca8febda41259a3fd))
+* **lint:** stylua ([0fb33ea](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/0fb33eaf6cd8adf85f6e53581ab58ffc25b0087d))
+
+## [2.1.1](https://github.com/dont-be-evil-company/jujutsu.nvim/compare/v2.1.0...v2.1.1) (2026-10-13)
+
+### Bug Fixes
+
+* **signs:** signs could cause a hang by spawning too many proccs ([937069c](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/937069c6e7b7765c286605d3bcabda6724b5508b))
+
+## [2.1.0](https://github.com/dont-be-evil-company/jujutsu.nvim/compare/v2.0.0...v2.1.0) (2026-10-13)
+
+### Features
+
+* **ui:** support external pickers ([577901a](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/577901a08b9fc3ded5b778733e567f319e60fa75))
+
+## [2.0.0](https://github.com/dont-be-evil-company/jujutsu.nvim/compare/v1.12.0...v2.0.0) (2026-09-28)
+
+### ⚠ BREAKING CHANGES
+
+* move to new org
+
+### Features
+
+* move to new org ([76f7e40](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/76f7e404d7686248244a144a000d975c29111333))
+
+## [1.12.0](https://github.com/dont-be-evil-company/jujutsu.nvim/compare/v1.11.3...v1.12.0) (2026-08-18)
+
+### Features
+
+* **presence:** add presence support ([1d0feb3](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/1d0feb306db0cc0d607618ce5152f23934f96c41))
+
+## [1.11.3](https://github.com/dont-be-evil-company/jujutsu.nvim/compare/v1.11.2...v1.11.3) (2026-08-17)
+
+### Bug Fixes
+
+* **ci:** time conversion ([c132322](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/c1323220dd2f96a24e40f92e36c81472e0ba225b))
+
 ## [1.11.2](https://github.com/dont-be-evil-company/jujutsu.nvim/compare/v1.11.1...v1.11.2) (2026-08-07)
 
 ### Bug Fixes
