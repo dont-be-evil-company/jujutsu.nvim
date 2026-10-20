@@ -1,13 +1,27 @@
-## [2.1.2](https://github.com/dont-be-evil-company/jujutsu.nvim/compare/v2.1.1...v2.1.2) (2026-10-20)
+## [2.3.0](https://github.com/dont-be-evil-company/jujutsu.nvim/compare/v2.2.0...v2.3.0) (2026-10-20)
+
+### Features
+
+* add merge support ([ff30f79](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/ff30f79cab55de79defb67ea3800ccd1e6d409e9))
+
+## [2.2.0](https://github.com/dont-be-evil-company/jujutsu.nvim/compare/v2.1.2...v2.2.0) (2026-10-20)
 
 ### Features
 
 * **docs:** change logo and update README ([b2afa9b](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/b2afa9b702557a4b521ac1d31f65da1ae1641570))
+* **docs:** update docs and CHANGELOG ([32051a8](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/32051a8dc2fe92305213f1257734b78b25f875dc))
+* **ux:** bookmark rev picker sort ([e8a0319](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/e8a0319dc64c4d2ab049e09ca749e932735ad0ee))
+
+### Bug Fixes
+
+* **input:** disable copilot in inputs ([3ef0bd0](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/3ef0bd01d68e11e6d34c1e8ca8febda41259a3fd))
+* **inputs:** disable complete ([1896055](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/1896055498471fb37c7a5d11bf3e1bef5d2021b2))
+
+## [2.1.2](https://github.com/dont-be-evil-company/jujutsu.nvim/compare/v2.1.1...v2.1.2) (2026-10-16)
 
 ### Bug Fixes
 
 * **float:** wo title ([883604d](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/883604dac6f632f507298da76c0eacc42193c2ec))
-* **input:** disable copilot in inputs ([3ef0bd0](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/3ef0bd01d68e11e6d34c1e8ca8febda41259a3fd))
 * **lint:** stylua ([0fb33ea](https://github.com/dont-be-evil-company/jujutsu.nvim/commit/0fb33eaf6cd8adf85f6e53581ab58ffc25b0087d))
 
 ## [2.1.1](https://github.com/dont-be-evil-company/jujutsu.nvim/compare/v2.1.0...v2.1.1) (2026-10-13)
