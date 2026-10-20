@@ -26,6 +26,7 @@ function M.open(opts)
 
   local bufnr = vim.api.nvim_create_buf(false, true)
   vim.b[bufnr].copilot_enabled = false
+  vim.bo[bufnr].complete = ""
   vim.bo[bufnr].buftype = "nofile"
   vim.bo[bufnr].bufhidden = "wipe"
   vim.bo[bufnr].swapfile = false
