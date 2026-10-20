@@ -14,6 +14,7 @@ CONTENTS                                                     *jujutsu-contents*
   9. Forge hub ................... |jujutsu-forge|
  10. PR review ................... |jujutsu-review|
  11. Issue / PR panel ............ |jujutsu-issue-panel|
+ 12. Merge conflicts ............. |jujutsu-merge|
 
 ==============================================================================
 1. INTRODUCTION                                                 *jujutsu-intro*
@@ -112,6 +113,18 @@ annotate({opts?})         Open `jj file annotate` for the current buffer
     path       string   absolute or repo-relative path
     revision   string   starting revision for annotate
     cwd        string   workspace directory hint
+
+                                                         *jujutsu.resolve()*
+resolve({opts?})          Open the three-pane merge editor for a working-copy
+                          conflict. With no path, opens the only conflict or
+                          asks you to pick one. See |jujutsu-merge|.
+
+  Options: ~
+    cwd     string   workspace directory hint
+    root    string   workspace root
+    path    string   repo-relative or absolute file
+
+  Status: `R` on a conflict.
 
                                                           *jujutsu.review()*
 review({opts?})           Open a forge PR/MR review in DiffView.
@@ -421,6 +434,38 @@ Config (defaults): ~
 <
 
 Providers: GitHub (`gh`), GitLab (`glab`), Bitbucket, Forgejo/Codeberg.
+
+==============================================================================
+12. MERGE CONFLICTS                                             *jujutsu-merge*
+
+Three panes: Incoming and Current on top, Result below. Incoming and Current
+stay aligned. Added lines are highlighted against the base; removed lines stay
+visible so the panes line up. Each change has a gutter checkbox. The result
+is the file that gets written, and it stays editable.
+
+Non-overlapping edits start checked. Overlapping edits start unchecked.
+Checking both keeps Incoming's block, then Current's.
+
+Keys (`mappings.merge`): ~
+  <Space>   Toggle the change under the cursor
+  A         Take all incoming
+  C         Take all current
+  B         Keep both sides of this overlap
+  ]c [c     Next or previous overlap
+  ]f [f     Next or previous conflicted file
+  <CR>      Write the result into the working copy
+  R         Rebuild the result from the checkboxes
+  <Tab>     Cycle panes
+  q         Close
+
+A click in the sign column toggles that change. Overlaps left open are written
+back as snapshot conflict markers so jj keeps them conflicted. `jj resolve`
+only exports file conflicts with two sides. Other conflicts open the file.
+Binary conflicts ask you to take one side.
+
+Entry points: ~
+- Status `R` on a conflict
+- |jujutsu.resolve()|
 
 ==============================================================================
 vim:tw=78:ts=8:ft=help:norl:

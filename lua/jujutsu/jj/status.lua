@@ -24,6 +24,7 @@ local WC_TEMPLATE = field_template({
   "description.first_line()",
   'if(conflict, "true", "false")',
   'if(empty, "true", "false")',
+  'if(divergent, "true", "false")',
 })
 
 local function log_template()
@@ -35,6 +36,7 @@ local function log_template()
     'if(conflict, "true", "false")',
     'if(empty, "true", "false")',
     time.timestamp_expr("author", "log"),
+    'if(divergent, "true", "false")',
   })
 end
 
@@ -48,6 +50,7 @@ local REAL_REC = "\x1e"
 ---@field description string
 ---@field conflict boolean
 ---@field empty? boolean
+---@field divergent? boolean
 ---@field timestamp? string
 ---@field files? FileStatus[]
 
@@ -61,6 +64,7 @@ local REAL_REC = "\x1e"
 ---@field parent ChangeInfo|nil
 ---@field files FileStatus[]
 ---@field conflicts string[]
+---@field divergent DivergentChange[]
 ---@field recent ChangeInfo[]
 --luacheck: ignore
 ---@field bookmarks { name: string, remote: string, change_id: string, commit_id: string, description: string, target: string, conflict: boolean, deleted: boolean }[]
@@ -87,7 +91,8 @@ local function parse_records(text)
           description = fields[4] or "",
           conflict = fields[5] == "true",
           empty = fields[6] == "true",
-          timestamp = fields[7] or "",
+          timestamp = (fields[8] == "true" or fields[8] == "false") and (fields[7] or "") or "",
+          divergent = fields[8] == "true" or (not fields[8] and fields[7] == "true"),
         })
       end
     end
@@ -138,9 +143,10 @@ function M.fetch(root, opts)
     on_error = function() return false end,
   }))
   local conflicts = {}
-  for _, line in ipairs(resolve_res.stdout) do
-    local p = line:match("^%S+%s+(.+)$") or line
-    if p and p ~= "" then table.insert(conflicts, p) end
+  local parse_conflict_path = require("jujutsu.merge.extract").parse_list_line
+  for _, line in ipairs(resolve_res and resolve_res.stdout or {}) do
+    local p = parse_conflict_path(line)
+    if p then table.insert(conflicts, p) end
   end
   if #conflicts == 0 then conflicts = conflicts_from_diff end
 
@@ -151,6 +157,7 @@ function M.fetch(root, opts)
     parent = parent,
     files = files,
     conflicts = conflicts,
+    divergent = require("jujutsu.jj.divergent").list(root),
     recent = recent,
     bookmarks = bookmarks,
     root = root,

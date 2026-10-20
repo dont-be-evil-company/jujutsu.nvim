@@ -10,7 +10,7 @@ local watcher = require("jujutsu.watcher")
 
 ---@class StatusItem
 --luacheck: ignore
----@field type string  -- "section" | "file" | "change_file" | "change" | "bookmark" | "conflict" | "header" | "diff" | "hint" | "load_more"
+---@field type string  -- "section" | "file" | "change_file" | "change" | "bookmark" | "conflict" | "divergent" | "header" | "diff" | "hint" | "load_more"
 ---@field text string
 ---@field hl? string
 ---@field line_hl? string  -- full-line highlight group (diff backgrounds)
@@ -173,6 +173,17 @@ local function add_file_with_diff(add, file, opts)
   end
 end
 
+---@param parts string[]
+---@param highlights { col: integer, end_col: integer, hl: string }[]
+---@param col integer
+---@param change ChangeInfo
+local function append_divergent(parts, highlights, col, change)
+  if not change.divergent then return end
+  local mark = " (divergent)"
+  table.insert(parts, mark)
+  table.insert(highlights, { col = col, end_col = col + #mark, hl = "JujutsuDivergent" })
+end
+
 ---@param add fun(item: StatusItem)
 ---@param change ChangeInfo
 ---@param opts? { indent?: string, file_indent?: string, bookmark_key?: string }
@@ -226,6 +237,8 @@ local function add_change_row(add, change, opts)
     end_col = col + #desc,
     hl = change.description ~= "" and "JujutsuDescription" or "JujutsuSubtle",
   })
+  col = col + #desc
+  append_divergent(parts, highlights, col, change)
 
   add({
     type = "change",
@@ -282,6 +295,11 @@ local function add_bookmark_row(add, bm)
     end_col = #text,
     hl = "JujutsuObjectId",
   })
+  if bm.divergent then
+    local mark = " (divergent)"
+    text = text .. mark
+    table.insert(highlights, { col = #text - #mark, end_col = #text, hl = "JujutsuDivergent" })
+  end
   add({
     type = "bookmark",
     text = text,
@@ -372,6 +390,8 @@ local function format_change_line(change, label)
     end_col = col + #desc,
     hl = change.description ~= "" and "JujutsuDescription" or "JujutsuSubtle",
   })
+  col = col + #desc
+  append_divergent(parts, highlights, col, change)
 
   return table.concat(parts), highlights
 end
@@ -384,6 +404,7 @@ local function ensure_folds()
       files = sections.files.folded,
       conflicts = sections.conflicts.folded,
       recent = sections.recent.folded,
+      divergent = sections.divergent and sections.divergent.folded,
       bookmarks = sections.bookmarks.folded,
       head = config.values.status.HEAD_folded,
     }
@@ -462,12 +483,72 @@ local function build_items()
   -- Conflicts
   if #data.conflicts > 0 then
     section("conflicts", "Conflicts", #data.conflicts, function()
+      local resolve_key
+      for key, action in pairs(config.values.mappings.status or {}) do
+        if action == "Resolve" then
+          resolve_key = key
+          break
+        end
+      end
+      if resolve_key then
+        add({
+          type = "hint",
+          text = "    " .. resolve_key .. " resolve in the merge editor",
+          hl = "JujutsuHint",
+        })
+      end
       for _, path in ipairs(data.conflicts) do
         add({
           type = "conflict",
           text = "    " .. path,
           hl = "JujutsuConflict",
           data = { path = path },
+        })
+      end
+    end)
+  end
+
+  -- Divergent changes (same change id, more than one commit)
+  local divergent = data.divergent or {}
+  if #divergent > 0 then
+    section("divergent", "Divergent", #divergent, function()
+      local resolve_key
+      for key, action in pairs(config.values.mappings.status or {}) do
+        if action == "Resolve" then
+          resolve_key = key
+          break
+        end
+      end
+      if resolve_key then
+        add({
+          type = "hint",
+          text = "    " .. resolve_key .. " compare copies and keep one",
+          hl = "JujutsuHint",
+        })
+      end
+      for _, group in ipairs(divergent) do
+        local desc = group.copies[1] and group.copies[1].description or ""
+        local same = true
+        for _, copy in ipairs(group.copies) do
+          if copy.description ~= desc then
+            same = false
+            break
+          end
+        end
+        if desc == "" then desc = "(no description)" end
+        if not same then desc = "descriptions differ" end
+        local count = string.format("(%d)", #group.copies)
+        local text = string.format("    %s  %s  %s", group.change_id, count, desc)
+        local id_end = 4 + #group.change_id
+        add({
+          type = "divergent",
+          text = text,
+          highlights = {
+            { col = 4, end_col = id_end, hl = "JujutsuChangeIdPrefix" },
+            { col = id_end + 2, end_col = id_end + 2 + #count, hl = "JujutsuDivergent" },
+            { col = id_end + 2 + #count + 2, end_col = #text, hl = same and "JujutsuDescription" or "JujutsuSubtle" },
+          },
+          data = { divergent = group, change = { change_id = group.change_id, divergent = true } },
         })
       end
     end)
@@ -813,6 +894,74 @@ local function get_env(opts)
   }
   if opts.with_selection then env.selection = M.capture_selection() end
   return env
+end
+
+---Conflicted local bookmark under the cursor, including rows expanded from it.
+---@param item StatusItem|nil
+---@return table|nil
+local function conflicted_bookmark(item)
+  if not item or not item.data or not instance or not instance.data then return nil end
+  local function local_conflict(bm) return bm and bm.conflict and (bm.remote or "") == "" and bm or nil end
+  local direct = local_conflict(item.data.bookmark)
+  if direct then return direct end
+  local key = item.data.bookmark_key
+  if not key then return nil end
+  for _, bm in ipairs(instance.data.bookmarks or {}) do
+    if bookmark_key(bm) == key then return local_conflict(bm) end
+  end
+end
+
+---The divergent change under the cursor.
+---The second return is true when the section header should open the picker.
+---@param item StatusItem|nil
+---@return DivergentChange|nil
+---@return boolean|nil pick
+local function divergent_target(item)
+  if not item or not instance or not instance.data then return nil end
+  local groups = instance.data.divergent or {}
+  if item.type == "section" and item.data and item.data.section == "divergent" then return nil, true end
+  if item.type == "divergent" and item.data and item.data.divergent then return item.data.divergent end
+  local change = item.data and item.data.change
+  if not change then return nil end
+  local group = require("jujutsu.jj.divergent").find(groups, change.change_id)
+  if group then return group end
+end
+
+---@param root string
+---@param bm table
+local function resolve_bookmark_conflict(root, bm)
+  local sides, err = require("jujutsu.jj.bookmark").conflict_sides(root, bm.name)
+  if not sides then
+    notify.error(err or ("Could not read bookmark " .. bm.name))
+    return
+  end
+  if #sides == 0 then
+    notify.warn(bm.name .. " has no sides to choose")
+    return
+  end
+  local labels = {}
+  for _, side in ipairs(sides) do
+    local subject = side.subject ~= "" and side.subject or "(no description)"
+    labels[#labels + 1] = string.format("%s %s %s", side.change_id, side.commit_id, subject)
+  end
+  local choice = finder.pick({ prompt = "Keep side of " .. bm.name, entries = labels })
+  if not choice or choice == "" then return end
+  local side
+  for i, label in ipairs(labels) do
+    if label == choice then
+      side = sides[i]
+      break
+    end
+  end
+  if not side then return end
+  local res = require("jujutsu.jj.cli").bookmark_set.allow_backwards
+    .revision(side.change_id)
+    .args(bm.name)
+    .call({ cwd = root, hidden = false })
+  if res and res.code == 0 then
+    notify.info("Resolved bookmark " .. bm.name)
+    require("jujutsu").refresh()
+  end
 end
 
 local function bind_actions(bufnr)
@@ -1218,6 +1367,44 @@ local function bind_actions(bufnr)
     end,
     GoToPreviousHunkHeader = function() vim.fn.search("^\\s*@@", "bW") end,
     GoToNextHunkHeader = function() vim.fn.search("^\\s*@@", "W") end,
+    Resolve = function()
+      local item = item_under_cursor()
+      local path = item and item.data and (item.data.path or (item.data.file and item.data.file.path))
+      local conflicts = instance.data and instance.data.conflicts or {}
+      local function is_conflict(p)
+        for _, conflict in ipairs(conflicts) do
+          if conflict == p then return true end
+        end
+      end
+      if path and not is_conflict(path) then path = nil end
+      local root = instance.root
+      local bm = conflicted_bookmark(item)
+      if not path and bm then
+        async.void(function() resolve_bookmark_conflict(root, bm) end)
+        return
+      end
+      local group, pick = divergent_target(item)
+      if not path and (group or pick) then
+        local groups = instance.data and instance.data.divergent or {}
+        async.void(function()
+          local view = require("jujutsu.buffers.divergent")
+          if pick then
+            view.choose(root, groups)
+          else
+            view.open(root, group)
+          end
+        end)
+        return
+      end
+      async.void(
+        function()
+          require("jujutsu.buffers.merge").open({
+            root = root,
+            path = path,
+          })
+        end
+      )
+    end,
   }
 
   mappings.apply(bufnr, "status", actions)

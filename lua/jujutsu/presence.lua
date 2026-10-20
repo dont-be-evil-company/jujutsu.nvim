@@ -71,6 +71,13 @@ local function parse_uri(name)
     if path and path:match("^panel/") then path = path:sub(7) end
     if path and path ~= "" then presence.path = decode(path) end
     return presence
+  elseif head == "merge" then
+    local role, path = (tail or ""):match("^([^/]+)/(.+)$")
+    return {
+      kind = "merge",
+      label = role or "merge",
+      path = path and decode(path) or nil,
+    }
   elseif head == "diff" then
     local presence = { kind = "diff", label = "diff" }
     tail = tail or ""

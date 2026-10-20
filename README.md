@@ -147,6 +147,8 @@ jj.close()
 jj.refresh()
 jj.annotate()                          -- annotate current buffer at cursor line
 jj.annotate({ path = "src/main.lua", line = 10 })
+jj.resolve()                           -- merge editor for working-copy conflicts
+jj.resolve({ path = "src/main.lua" })
 jj.review()                            -- pick an open PR/MR and review it
 jj.review({ number = 15 })             -- open a specific PR/MR
 jj.forge_popup()                       -- Magit-style forge hub (PRs, issues, CI)
@@ -361,6 +363,19 @@ Shows working-copy / parent headers,
 conflicts,
 file changes (inline diffs via `<Tab>`),
 recent commits, and bookmarks.
+
+## Merge conflicts
+
+`R` on a conflict (or `require("jujutsu").resolve()`) opens a three-pane editor:
+
+- **Incoming** and **Current** on top, aligned, with a gutter checkbox on each change
+- **Result** below, editable
+
+Non-overlapping edits start checked. Overlapping edits start unchecked. `<Space>` toggles the change under the cursor, `A` / `C` take every overlap from one side, and `B` keeps both. `<CR>` writes the result into the working copy; the next status refresh lets jj snapshot it. Overlaps you leave open are written back as conflict markers.
+
+`]c` / `[c` move between overlaps, `]f` / `[f` move between conflicted files, `R` rebuilds the result from the checkboxes, `q` closes. `<Tab>` cycles the panes. A click in the sign column toggles that change.
+
+`jj resolve` can only export a file conflict with two sides. Directory, symlink, and many-sided conflicts open the file instead. Binary conflicts ask you to take one side.
 
 ### Default Popups (Lowercase)
 

@@ -3,7 +3,7 @@ local config = require("jujutsu.config")
 local M = {}
 
 ---@param bufnr integer
----@param map_set string  -- "status" | "popup" | "log_view" | "finder" | "commit_editor"
+---@param map_set string  -- "status" | "popup" | "log_view" | "finder" | "commit_editor" | "merge"
 ---@param actions table<string, function|string>
 ---@param opts? { buffer?: integer, mode?: string }
 function M.apply(bufnr, map_set, actions, opts)

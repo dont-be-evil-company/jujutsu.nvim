@@ -13,7 +13,7 @@ function M.create(env)
   end
   b:new_action_group("Status")
   -- Show a sample of useful status mappings
-  local order = { "q", "<c-r>", "<tab>", "x", "D", "E", "O", "B", "F", "P", "S", "o", "<cr>", "1", "2", "3", "4" }
+  local order = { "q", "<c-r>", "<tab>", "x", "R", "D", "E", "O", "B", "F", "P", "S", "o", "<cr>", "1", "2", "3", "4" }
   for _, key in ipairs(order) do
     local name = status_maps[key]
     if name then b:action(key, tostring(name), function() end, { persist_popup = true }) end

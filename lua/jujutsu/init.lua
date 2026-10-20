@@ -207,6 +207,20 @@ function M.annotate(opts)
   })
 end
 
+---Open the three-pane merge editor for a working-copy conflict.
+---@class ResolveOpts
+---@field cwd? string
+---@field root? string
+---@field path? string repo-relative or absolute path
+
+---@param opts? ResolveOpts
+function M.resolve(opts)
+  ensure_setup()
+  opts = opts or {}
+  if opts.cwd and not opts.root then opts.root = cli.find_workspace_root(opts.cwd) end
+  require("jujutsu.buffers.merge").open(opts)
+end
+
 ---Open a forge PR/MR review (DiffView + local comments + submit via gh/glab/REST).
 ---@class ReviewOpts
 ---@field cwd? string

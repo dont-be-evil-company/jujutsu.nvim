@@ -50,6 +50,7 @@ function M.open(root, revset)
     'if(current_working_copy, "true", "false")',
     "change_id.shortest(4)",
     'if(immutable, "true", "false")',
+    'if(divergent, "true", "false")',
   })
 
   local line_map = {}
@@ -85,6 +86,7 @@ function M.open(root, revset)
       local working_copy = f[7] == "true"
       local shortest = f[8] or ""
       local immutable = f[9] == "true"
+      local divergent = f[10] == "true"
 
       local parts = {}
       local hls = {}
@@ -125,8 +127,10 @@ function M.open(root, revset)
       local status_parts = {}
       if empty then table.insert(status_parts, "empty") end
       if conflict then table.insert(status_parts, "conflict") end
+      if divergent then table.insert(status_parts, "divergent") end
       if #status_parts > 0 then
-        push(" (" .. table.concat(status_parts, ", ") .. ")", conflict and "JujutsuConflict" or "JujutsuSubtle")
+        local status_hl = divergent and "JujutsuDivergent" or (conflict and "JujutsuConflict" or "JujutsuSubtle")
+        push(" (" .. table.concat(status_parts, ", ") .. ")", status_hl)
       end
 
       local row = #lines + 1
@@ -146,6 +150,7 @@ function M.open(root, revset)
         description = f[4] or "",
         conflict = conflict,
         empty = empty,
+        divergent = divergent,
         working_copy = working_copy,
         immutable = immutable,
       }

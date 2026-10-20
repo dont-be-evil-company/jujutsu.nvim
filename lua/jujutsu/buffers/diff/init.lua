@@ -28,6 +28,8 @@ local M = {}
 ---@field line_map table<integer, DiffViewFile|nil>
 ---@field closing boolean
 ---@field review ReviewSession|nil
+---@field diverge { change_id: string, copies: DivergentCopy[], left: integer, right: integer }|nil
+---@field copy_rows table<integer, integer>|nil
 
 ---@type DiffView|nil
 local instance = nil
@@ -144,11 +146,43 @@ local function files_from_summary_builder(builder, root)
   return files
 end
 
+---@param s string
+---@return string
+local function esc_bar(s) return (s or ""):gsub("%%", "%%%%") end
+
+---@param view DiffView
+local function set_side_bars(view)
+  local diverge = view.diverge
+  if not diverge or not view.split then return end
+  local function bar(copy, role, hint)
+    if not copy then return "" end
+    local detail = copy.commit_id or ""
+    if copy.bookmarks and #copy.bookmarks > 0 then detail = detail .. " " .. table.concat(copy.bookmarks, " ") end
+    if copy.description and copy.description ~= "" then detail = detail .. "  " .. copy.description end
+    if #detail > 72 then detail = detail:sub(1, 71) .. "…" end
+    return table.concat({
+      "%#JujutsuHeaderLabel# ",
+      esc_bar(role),
+      " %#JujutsuCommitId#",
+      esc_bar(detail),
+      "%#JujutsuSubtle#  ",
+      esc_bar(hint),
+    })
+  end
+  local left = diverge.copies[diverge.left]
+  local right = diverge.copies[diverge.right]
+  local lwin = view.split.left_win
+  local rwin = view.split.right_win
+  if lwin and vim.api.nvim_win_is_valid(lwin) then vim.wo[lwin].winbar = bar(left, "Left", "1 keep") end
+  if rwin and vim.api.nvim_win_is_valid(rwin) then vim.wo[rwin].winbar = bar(right, "Right", "2 keep") end
+end
+
 ---@param view DiffView
 local function render_panel(view)
   local lines = {}
   local highlights = {}
   view.line_map = {}
+  view.copy_rows = {}
   view.files = visible_files(view)
 
   local function add(text, file, hls)
@@ -164,6 +198,37 @@ local function render_panel(view)
         line_hl = h.line_hl,
       })
     end
+  end
+
+  if view.diverge then
+    local diverge = view.diverge
+    local heading = string.format("Divergent %s (%d copies)", diverge.change_id, #diverge.copies)
+    add(heading, nil, { { col = 0, end_col = #heading, hl = "JujutsuDivergent" } })
+    local hint = "1 keep left    2 keep right    ]c / [c cycle    <CR> keep the copy under the cursor    q close"
+    add(hint, nil, { { col = 0, end_col = #hint, hl = "JujutsuHint" } })
+    for i, copy in ipairs(diverge.copies) do
+      local roles = {}
+      if i == diverge.left then roles[#roles + 1] = "left" end
+      if i == diverge.right then roles[#roles + 1] = "right" end
+      local role = #roles > 0 and ("  " .. table.concat(roles, " ")) or ""
+      local marks = (copy.bookmarks and #copy.bookmarks > 0) and table.concat(copy.bookmarks, " ") or "-"
+      local desc = (copy.description and copy.description ~= "") and copy.description or "(no description)"
+      local num = tostring(i)
+      local text = string.format("  %s  %s  %s  %s%s", num, copy.commit_id, marks, desc, role)
+      local num_col = 2
+      local id_col = num_col + #num + 2
+      local mark_col = id_col + #copy.commit_id + 2
+      local desc_col = mark_col + #marks + 2
+      add(text, nil, {
+        { col = num_col, end_col = num_col + #num, hl = "JujutsuPopupKey" },
+        { col = id_col, end_col = id_col + #copy.commit_id, hl = "JujutsuCommitId" },
+        { col = mark_col, end_col = mark_col + #marks, hl = "JujutsuBranch" },
+        { col = desc_col, end_col = desc_col + #desc, hl = "JujutsuDescription" },
+        { col = desc_col + #desc, end_col = #text, hl = "JujutsuDivergent" },
+      })
+      view.copy_rows[#lines] = i
+    end
+    add("", nil, {})
   end
 
   local total = #(view.all_files or view.files)
@@ -235,6 +300,7 @@ local function render_panel(view)
   end
 
   Buffer.render(view.panel_buf, lines, highlights)
+  set_side_bars(view)
 end
 
 ---@param view DiffView
@@ -804,6 +870,87 @@ local function bind_review_keymaps(view)
 end
 
 ---@param view DiffView
+---@param view DiffView
+local function reload_diff_sides(view)
+  local builder = cli.diff.from(view.left_rev).to(view.right_rev)
+  view.all_files = files_from_summary_builder(builder, view.root)
+  view.files = view.all_files
+  local still = false
+  for _, file in ipairs(view.files) do
+    if file.path == view.selected_path then
+      still = true
+      break
+    end
+  end
+  if still then
+    select_path(view, view.selected_path)
+  elseif #view.files > 0 then
+    select_path(view, view.files[1].path)
+  else
+    view.selected_path = nil
+    render_panel(view)
+    split_mod.clear(view.split)
+  end
+end
+
+---@param view DiffView
+---@param index integer
+local function keep_copy(view, index)
+  local diverge = view.diverge
+  if not diverge then return end
+  local copy = diverge.copies[index]
+  if not copy then return end
+  local drop = {}
+  for i, other in ipairs(diverge.copies) do
+    if i ~= index then drop[#drop + 1] = other.commit_id end
+  end
+  if #drop == 0 then return end
+  async.void(function()
+    local noun = #drop == 1 and "copy" or "copies"
+    local ok = finder.confirm(
+      string.format("Keep %s and abandon %d other %s of %s?", copy.commit_id, #drop, noun, diverge.change_id)
+    )
+    if not ok then return end
+    local res = cli.abandon.args(unpack(drop)).call({ cwd = view.root, hidden = false })
+    if res and res.code == 0 then
+      require("jujutsu.notify").info("Kept " .. copy.commit_id)
+      close_view()
+      require("jujutsu").refresh()
+    end
+  end)
+end
+
+---@param view DiffView
+---@param which "left"|"right"
+local function keep_side(view, which)
+  local diverge = view.diverge
+  if not diverge then return end
+  keep_copy(view, which == "left" and diverge.left or diverge.right)
+end
+
+---@param view DiffView
+---@param dir integer
+local function cycle_copy(view, dir)
+  local diverge = view.diverge
+  if not diverge or #diverge.copies < 2 then return end
+  if #diverge.copies == 2 then
+    diverge.left, diverge.right = diverge.right, diverge.left
+  else
+    local key = dir > 0 and "right" or "left"
+    local other = key == "right" and diverge.left or diverge.right
+    local i = diverge[key]
+    local n = #diverge.copies
+    for _ = 1, n do
+      i = ((i - 1 + dir) % n) + 1
+      if i ~= other then break end
+    end
+    diverge[key] = i
+  end
+  view.left_rev = diverge.copies[diverge.left].commit_id
+  view.right_rev = diverge.copies[diverge.right].commit_id
+  reload_diff_sides(view)
+end
+
 local function bind_keymaps(view)
   local bufnr = view.panel_buf.bufnr
   local function map(lhs, rhs, desc)
@@ -815,6 +962,10 @@ local function bind_keymaps(view)
 
   local function open_under_cursor()
     local row = vim.api.nvim_win_get_cursor(view.panel_win)[1]
+    if view.copy_rows and view.copy_rows[row] then
+      keep_copy(view, view.copy_rows[row])
+      return
+    end
     local file = view.line_map[row]
     if file then select_path(view, file.path) end
   end
@@ -843,6 +994,18 @@ local function bind_keymaps(view)
   end
 
   map("<cr>", open_under_cursor, "Open")
+  if view.diverge then
+    local function map_all(lhs, rhs, desc)
+      map(lhs, rhs, desc)
+      for _, buf in ipairs({ view.split.left_buf.bufnr, view.split.right_buf.bufnr }) do
+        vim.keymap.set("n", lhs, rhs, { buffer = buf, silent = true, noremap = true, desc = "jujutsu: " .. desc })
+      end
+    end
+    map_all("1", function() keep_side(view, "left") end, "KeepLeft")
+    map_all("2", function() keep_side(view, "right") end, "KeepRight")
+    map_all("]c", function() cycle_copy(view, 1) end, "NextCopy")
+    map_all("[c", function() cycle_copy(view, -1) end, "PrevCopy")
+  end
   map("o", open_file_in_browser, "OpenInBrowser")
   map("<tab>", function() select_adjacent(view, 1) end, "NextFile")
   map("<s-tab>", function() select_adjacent(view, -1) end, "PrevFile")
@@ -936,7 +1099,7 @@ end
 
 ---Open a side-by-side diff tab with a file list.
 -- luacheck: ignore 631
----@param opts { cwd: string, title?: string, left?: string, right?: string, revision?: string, builder?: any, review?: ReviewSession }
+---@param opts { cwd: string, title?: string, left?: string, right?: string, revision?: string, builder?: any, review?: ReviewSession, diverge?: { change_id: string, copies: DivergentCopy[], left: integer, right: integer } }
 function M.open(opts)
   require("jujutsu.hl").setup()
   opts = opts or {}
@@ -1033,6 +1196,8 @@ function M.open(opts)
     line_map = {},
     closing = false,
     review = opts.review,
+    diverge = opts.diverge,
+    copy_rows = {},
     floating = regions ~= nil,
     wins = { left_win, right_win, panel_win },
   }
